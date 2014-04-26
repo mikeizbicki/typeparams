@@ -3,13 +3,30 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverlappingInstances #-}
+
+-- | Efficient vectors requiring a storable instance for the elements.
+-- These vectors can be considerably faster than unboxed vectors in 
+-- some cases.
+-- This is because a storable vector of fixed size need only keep track
+-- of a single pointer; everything else is known at compile time.
+-- This lets us move some variables from memory into the assembly
+-- instructions.
+-- Tricks like this are not available in c code and can be very important.
+-- We store less memory, use fewer registers, run fewer assembly instructions,
+-- and have fewer cache misses.
+-- In short, this data type is awesome.
+-- 
+-- A 'Storable' instance lets us create vectors of vectors; however,
+-- I'm not 100% convinced that it is correct with respect to memory leaks.
+
 module Data.Params.Vector.Storable
     where
 
 import Control.Monad
 import Control.Monad.Primitive
 import Control.DeepSeq
-import Data.Primitive
+-- import Data.Primitive
 import Data.Primitive.Addr
 import Data.Primitive.ByteArray
 import Data.Primitive.Types
@@ -114,35 +131,30 @@ instance
     {-# INLINE elemseq #-}
     elemseq _ = seq
 
----------------------------------------
--- automatically sized
+-------------------
+-- storable instance allows us to make vectors of vectors
 
--- newtype instance Vector Nothing elem = Vector_Nothing (VP.Vector elem)
--- 
--- instance NFData elem => NFData (Vector Nothing elem) where
---     rnf (Vector_Nothing v) = rnf v
--- 
--- instance Prim elem => VG.Vector (Vector Nothing) elem where 
---     {-# INLINE basicUnsafeFreeze #-}
---     basicUnsafeFreeze (MVector_Nothing v) = Vector_Nothing `liftM` VG.basicUnsafeFreeze v
--- 
---     {-# INLINE basicUnsafeThaw #-}
---     basicUnsafeThaw (Vector_Nothing v) = MVector_Nothing `liftM` VG.basicUnsafeThaw v
--- 
---     {-# INLINE basicLength #-}
---     basicLength (Vector_Nothing v) = VG.basicLength v
--- 
---     {-# INLINE basicUnsafeSlice #-}
---     basicUnsafeSlice i m (Vector_Nothing v) = Vector_Nothing $ VG.basicUnsafeSlice i m v
--- 
---     {-# INLINE basicUnsafeIndexM #-}
---     basicUnsafeIndexM (Vector_Nothing v) i = VG.basicUnsafeIndexM v i
--- 
---     {-# INLINE basicUnsafeCopy #-}
---     basicUnsafeCopy (MVector_Nothing mv) (Vector_Nothing v) = VG.basicUnsafeCopy mv v
--- 
---     {-# INLINE elemseq #-}
---     elemseq _ = seq
+instance 
+    ( Storable elem
+    , KnownNat len
+    ) => Storable (Vector (Just len) elem)
+        where
+
+    sizeOf _ = len * sizeOf (undefined::elem)
+        where
+            len = intparam (Proxy::Proxy len)
+
+    alignment _ = alignment (undefined::elem)
+
+    peek p = unsafePrimToPrim $ do
+        fp <- newForeignPtr_ (castPtr p :: Ptr elem)
+        return $ Vector fp
+
+    poke p (Vector fq) = unsafePrimToPrim $ do
+        withForeignPtr fq $ \q -> 
+            Foreign.Marshal.Array.copyArray (castPtr p) q len
+        where
+            len = intparam (Proxy::Proxy len)
 
 -------------------------------------------------------------------------------
 -- mutable vector
