@@ -135,8 +135,7 @@ data family MVector (len::Maybe Nat) s elem
 ---------------------------------------
 -- fixed size
 
-data instance MVector (Just len) s elem = MVector 
-    {-#UNPACK#-}!(MutableByteArray s)
+newtype instance MVector (Just len) s elem = MVector (MutableByteArray s)
 
 instance 
     ( Prim elem

@@ -39,6 +39,7 @@ Library
 
     Exposed-modules:
         Data.Params
+        Data.Params.Vector.Storable
         Data.Params.Vector.Unboxed
         Data.Params.Vector.UnboxedRaw
 

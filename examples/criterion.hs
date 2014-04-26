@@ -13,6 +13,7 @@ import Data.Primitive.ByteArray
 import qualified Data.Vector.Generic as VG
 import qualified Data.Params.Vector.Unboxed as VPU
 import qualified Data.Params.Vector.UnboxedRaw as VPR
+import qualified Data.Params.Vector.Storable as VPS
 import qualified Data.Vector.Unboxed as VU
 
 -------------------------------------------------------------------------------
@@ -38,6 +39,9 @@ main = do
     let vprj1 = VG.fromList dimL1 :: VPR.Vector (Just Arrlen) Float
         vprj2 = VG.fromList dimL2 :: VPR.Vector (Just Arrlen) Float
 
+    let vpsj1 = VG.fromList dimL1 :: VPR.Vector (Just Arrlen) Float
+        vpsj2 = VG.fromList dimL2 :: VPR.Vector (Just Arrlen) Float
+
     let ba1 = list2ByteArray dimL1
         ba2 = list2ByteArray dimL2
 
@@ -45,6 +49,7 @@ main = do
     deepseq vpun1 $ deepseq vpun2 $ return ()
     deepseq vpuj1 $ deepseq vpuj2 $ return ()
     deepseq vprj1 $ deepseq vprj2 $ return ()
+    deepseq vpsj1 $ deepseq vpsj2 $ return ()
     seq ba1 $ seq ba2 $ return ()
 
     defaultMainWith critConfig (return ())
@@ -53,6 +58,7 @@ main = do
             , bench "VPU.Vector Nothing"        $ nf (distance_Vector_diff1 vpun1) vpun2
             , bench "VPU.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vpuj1) vpuj2
             , bench "VPR.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vprj1) vprj2
+            , bench "VPS.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vpsj1) vpsj2
             , bench "ByteArray"                 $ nf (distance_ByteArray_diff1 ba1) ba2
             ]
         , bgroup "diff4"
@@ -60,6 +66,7 @@ main = do
             , bench "VPU.Vector Nothing"        $ nf (distance_Vector_diff4 vpun1) vpun2
             , bench "VPU.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vpuj1) vpuj2
             , bench "VPR.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vprj1) vprj2
+            , bench "VPS.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vpsj1) vpsj2
             , bench "ByteArray"                 $ nf (distance_ByteArray_diff4 ba1) ba2
             ]
         ]
