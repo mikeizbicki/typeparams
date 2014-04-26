@@ -140,16 +140,20 @@ instance
     ) => Storable (Vector (Just len) elem)
         where
 
+    {-# INLINE sizeOf #-}
     sizeOf _ = len * sizeOf (undefined::elem)
         where
             len = intparam (Proxy::Proxy len)
 
+    {-# INLINE alignment #-}
     alignment _ = alignment (undefined::elem)
 
+    {-# INLINE peek #-}
     peek p = unsafePrimToPrim $ do
         fp <- newForeignPtr_ (castPtr p :: Ptr elem)
         return $ Vector fp
 
+    {-# INLINE poke #-}
     poke p (Vector fq) = unsafePrimToPrim $ do
         withForeignPtr fq $ \q -> 
             Foreign.Marshal.Array.copyArray (castPtr p) q len

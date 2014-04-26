@@ -15,15 +15,31 @@ import qualified Data.Params.Vector.Unboxed as VPU
 import qualified Data.Params.Vector.UnboxedRaw as VPR
 import qualified Data.Params.Vector.Storable as VPS
 import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector as V
 
 -------------------------------------------------------------------------------
 -- criterion tests
 
-arrlen = 12 :: Int
-type Arrlen = 12
+critConfig = defaultConfig 
+        { cfgPerformGC   = ljust True
+        , cfgSamples     = ljust 100
+        }
 
+---------------------------------------
+-- vector size constants
+
+arrlen = 20 :: Int
+type Arrlen = 20
+
+numvec = 10000 :: Int
+type Numvec = 10000
+
+---------------------------------------
+-- main function
 main = do
     
+    -- single vectors
+
     let dimL1 :: [Float] = evalRand (replicateM arrlen $ getRandomR (-10000,10000)) (mkStdGen $ 1)
         dimL2 :: [Float] = evalRand (replicateM arrlen $ getRandomR (-10000,10000)) (mkStdGen $ 2)
 
@@ -52,35 +68,101 @@ main = do
     deepseq vpsj1 $ deepseq vpsj2 $ return ()
     seq ba1 $ seq ba2 $ return ()
 
+    -- vectors of vectors
+
+    let dimLL1 :: [[Float]] = 
+            [ evalRand (replicateM arrlen $ getRandomR (-10000,10000)) (mkStdGen i) | i <- [1..numvec]]
+
+    let dimLL2 :: [[Float]] = 
+            [ evalRand (replicateM arrlen $ getRandomR (-10000,10000)) (mkStdGen i) | i <- [2..numvec+1]]
+
+    let vpunvpuj1 = VG.fromList $ map VG.fromList dimLL1 
+            :: VPU.Vector Nothing (VPU.Vector (Just Arrlen) Float)
+    let vpunvpuj2 = VG.fromList $ map VG.fromList dimLL2 
+            :: VPU.Vector Nothing (VPU.Vector (Just Arrlen) Float)
+
+    let vpujvpuj1 = VG.fromList $ map VG.fromList dimLL1 
+            :: VPU.Vector (Just Numvec) (VPU.Vector (Just Arrlen) Float)
+    let vpujvpuj2 = VG.fromList $ map VG.fromList dimLL2 
+            :: VPU.Vector (Just Numvec) (VPU.Vector (Just Arrlen) Float)
+
+    let vprjvpuj1 = VG.fromList $ map VG.fromList dimLL1 
+            :: VPR.Vector (Just Numvec) (VPU.Vector (Just Arrlen) Float)
+    let vprjvpuj2 = VG.fromList $ map VG.fromList dimLL2 
+            :: VPR.Vector (Just Numvec) (VPU.Vector (Just Arrlen) Float)
+
+    let vpsjvpsj1 = VG.fromList $ map VG.fromList dimLL1 
+            :: VPS.Vector (Just Numvec) (VPS.Vector (Just Arrlen) Float)
+    let vpsjvpsj2 = VG.fromList $ map VG.fromList dimLL2 
+            :: VPS.Vector (Just Numvec) (VPS.Vector (Just Arrlen) Float)
+
+    let vvpuj1 = VG.fromList $ map VG.fromList dimLL1 
+            :: V.Vector (VPU.Vector (Just Arrlen) Float)
+    let vvpuj2 = VG.fromList $ map VG.fromList dimLL2 
+            :: V.Vector (VPU.Vector (Just Arrlen) Float)
+
+    deepseq vpunvpuj1 $ deepseq vpunvpuj2 $ return ()
+    deepseq vpujvpuj1 $ deepseq vpujvpuj2 $ return ()
+    deepseq vprjvpuj1 $ deepseq vprjvpuj2 $ return ()
+    deepseq vpsjvpsj1 $ deepseq vpsjvpsj2 $ return ()
+    deepseq vvpuj1 $ deepseq vvpuj2 $ return ()
+
+    -- tests
+
     defaultMainWith critConfig (return ())
-        [ bgroup "diff1"
-            [ bench "VU.Vector"                 $ nf (distance_Vector_diff1 vu1) vu2
-            , bench "VPU.Vector Nothing"        $ nf (distance_Vector_diff1 vpun1) vpun2
-            , bench "VPU.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vpuj1) vpuj2
-            , bench "VPR.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vprj1) vprj2
-            , bench "VPS.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vpsj1) vpsj2
-            , bench "ByteArray"                 $ nf (distance_ByteArray_diff1 ba1) ba2
+        [ bgroup "1d"
+            [ bgroup "diff1"
+                [ bench "VU.Vector"                 $ nf (distance_Vector_diff1 vu1) vu2
+                , bench "VPU.Vector Nothing"        $ nf (distance_Vector_diff1 vpun1) vpun2
+                , bench "VPU.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vpuj1) vpuj2
+                , bench "VPR.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vprj1) vprj2
+                , bench "VPS.Vector (Just Arrlen)"  $ nf (distance_Vector_diff1 vpsj1) vpsj2
+                , bench "ByteArray"                 $ nf (distance_ByteArray_diff1 ba1) ba2
+                ]
+            , bgroup "diff4"
+                [ bench "VU.Vector"                 $ nf (distance_Vector_diff4 vu1) vu2
+                , bench "VPU.Vector Nothing"        $ nf (distance_Vector_diff4 vpun1) vpun2
+                , bench "VPU.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vpuj1) vpuj2
+                , bench "VPR.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vprj1) vprj2
+                , bench "VPS.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vpsj1) vpsj2
+                , bench "ByteArray"                 $ nf (distance_ByteArray_diff4 ba1) ba2
+                ]
             ]
-        , bgroup "diff4"
-            [ bench "VU.Vector"                 $ nf (distance_Vector_diff4 vu1) vu2
-            , bench "VPU.Vector Nothing"        $ nf (distance_Vector_diff4 vpun1) vpun2
-            , bench "VPU.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vpuj1) vpuj2
-            , bench "VPR.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vprj1) vprj2
-            , bench "VPS.Vector (Just Arrlen)"  $ nf (distance_Vector_diff4 vpsj1) vpsj2
-            , bench "ByteArray"                 $ nf (distance_ByteArray_diff4 ba1) ba2
+        , bgroup "2d"
+            [ bgroup "diff4"
+                [ bench "VPU.Vector Nothing (VPU.Vector (Just Arrlen))" 
+                    $ nf (distance_VectorVector distance_Vector_diff4 vpunvpuj1) vpunvpuj2
+                , bench "VPU.Vector (Just Numvec) (VPU.Vector (Just Arrlen))" 
+                    $ nf (distance_VectorVector distance_Vector_diff4 vpujvpuj1) vpujvpuj2
+                , bench "VPR.Vector (Just Numvec) (VPU.Vector (Just Arrlen))" 
+                    $ nf (distance_VectorVector distance_Vector_diff4 vprjvpuj1) vprjvpuj2
+                , bench "VPS.Vector (Just Numvec) (VPS.Vector (Just Arrlen))" 
+                    $ nf (distance_VectorVector distance_Vector_diff4 vpsjvpsj1) vpsjvpsj2
+                , bench "V.Vector (VPU.Vector (Just Arrlen))" 
+                    $ nf (distance_VectorVector distance_Vector_diff4 vvpuj1) vvpuj2
+                ]
             ]
         ]
-
-critConfig = defaultConfig 
-        { cfgPerformGC   = ljust True
-        , cfgSamples     = ljust 1000
-        }
 
 -------------------------------------------------------------------------------
 -- test functions 
 
+{-# INLINE distance_VectorVector #-}
+distance_VectorVector :: 
+    ( VG.Vector v1 (v2 f)
+    , VG.Vector v2 f
+    , Floating f
+    ) => (v2 f -> v2 f -> f) -> v1 (v2 f) -> v1 (v2 f) -> f
+distance_VectorVector dist vv1 vv2 = go 0 (VG.length vv1-1)
+    where
+        go tot 0 = tot
+        go tot i = dist (vv1 VG.! i) (vv2 VG.! i)
+                 + go tot (i-1)
+
+---------------------------------------
+
 {-# INLINE distance_Vector_diff1 #-}
-distance_Vector_diff1 :: (Show f,VG.Vector v f, Floating f) => v f -> v f -> f
+distance_Vector_diff1 :: (VG.Vector v f, Floating f) => v f -> v f -> f
 distance_Vector_diff1 !v1 !v2 = sqrt $ go 0 (VG.length v1-1)
     where
         go tot (-1) = tot
@@ -90,7 +172,7 @@ distance_Vector_diff1 !v1 !v2 = sqrt $ go 0 (VG.length v1-1)
                 diff1 = v1 `VG.unsafeIndex` i-v2 `VG.unsafeIndex` i
 
 {-# INLINE distance_Vector_diff4 #-}
-distance_Vector_diff4 :: (Show f,VG.Vector v f, Floating f) => v f -> v f -> f
+distance_Vector_diff4 :: (VG.Vector v f, Floating f) => v f -> v f -> f
 distance_Vector_diff4 !v1 !v2 = sqrt $ go 0 (VG.length v1-1)
     where
         go tot (-1) = tot

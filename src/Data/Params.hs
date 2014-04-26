@@ -13,6 +13,7 @@ module Data.Params
     , using
 
     -- * Modules
+    , module GHC.TypeLits
     , module Data.Reflection
     , module Data.Proxy
     , module Data.Constraint
@@ -103,8 +104,8 @@ using2 :: (ReifiableConstraint p1, ReifiableConstraint p2) =>
 using2 (p1,p2) f = using p1 $ using p2 $ f
 
 setParam2 :: (SetParam p1 m, SetParam p2 m) => 
-    (DefParam p1 m, DefParam p2 m) -> ((p1 m, p2 m) => m) -> m
-setParam2 (p1,p2) f = setParam p1 $ setParam p2 $ f
+    DefParam p1 m -> DefParam p2 m -> ((p1 m, p2 m) => m) -> m
+setParam2 p1 p2 f = setParam p1 $ setParam p2 $ f
 
 -------------------------------------------------------------------------------
 -- template haskell
@@ -131,8 +132,11 @@ mkParams dataName = do
          varL' 
     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
 
+    setParamClass <- liftM concat $ mapM (\(n,k,t) -> mkSetParamClass n $ return t) varL'
+    setParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkSetParamInstances n t dataName) varL' 
+
     trace ("varL' = "++show varL') $ 
-        return $ paramClass++reifiableC++paramInsts
+        return $ paramClass++reifiableC++paramInsts++setParamClass++setParamInsts
 --     trace ("varL' = "++show varL') $ return []
 
 sing_kind2type :: Type -> Type
@@ -141,7 +145,7 @@ sing_kind2type (ConT n) = ConT $ mkName $ case nameBase n of
     "Nat" -> "Int"
     "TermT" -> "Term"
     "Method" -> "Method"
-    otherwise -> error $ "nameBase n = " ++ nameBase n
+    otherwise -> error $ "error kind2type: nameBase n = " ++ nameBase n
 
 param2class :: Name -> Name
 param2class p = mkName $ "Param_" ++ nameBase p
@@ -156,6 +160,15 @@ param2func p = mkName $ "param_" ++ nameBase p
 --             []
 --             (mkName $ "AllParamsDefined_"++nameBase dataName)
 
+-- | creates instances of the form
+--
+-- instance (KnownNat paramName) => Param_paramName (Just paramName) where
+--      param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
+--
+-- instance SetParam Param_paramName (dataName) where
+--      data DefParam Param_paramName (dataName ...) = SetParam_dataName_paramName (...)
+--      setParam = (...)
+--
 mkParamInstance :: String -> Type -> Name -> Q [Dec]
 mkParamInstance paramStr paramType dataName  = do
     c <- TH.reify dataName
@@ -181,7 +194,6 @@ mkParamInstance paramStr paramType dataName  = do
                 (ConT $ param2class paramName)
                 (tyVarL2Type tyVarL (AppT (PromotedT $ mkName "Just") (VarT paramName))))
             [ FunD
---                 ( mkName $ "param_"++nameBase dataName++"_"++nameBase paramName )
                 ( mkName $ "param_"++nameBase paramName )
                 [ Clause
                     [ VarP $ mkName "m" ]
@@ -230,7 +242,6 @@ mkParamInstance paramStr paramType dataName  = do
                             (AppE
                                 (VarE $ mkName "using")
                                 (AppE
---                                     (ConE $ mkName $ "Def_Param_"++nameBase dataName++"_"++nameBase paramName)
                                     (ConE $ mkName $ "Def_Param_"++nameBase paramName)
                                     (LamE
                                         [VarP $ mkName"x"]
@@ -258,20 +269,25 @@ mkParamInstance paramStr paramType dataName  = do
                     then matchType 
                     else (VarT n)
 
+-- | Creates classes of the form
+--
+-- class Param_paramname m where
+--      param_paramname :: m -> paramT
+--
 mkParamClass :: String -> Q Type -> Q [Dec]
-mkParamClass str qparamT = do
+mkParamClass paramname qparamT = do
     paramT <- qparamT
-    isDef <- lookupTypeName $ "Param_"++str
-    return $ trace ("lookupTypeName $ Param_"++str++"="++show isDef) $ case isDef of
+    isDef <- lookupTypeName $ "Param_"++paramname
+    return $ case isDef of
         Just _ -> []
         Nothing -> 
             [ ClassD
                 []
-                (mkName $ "Param_"++str) 
+                (mkName $ "Param_"++paramname) 
                 [PlainTV $ mkName "m"]
                 []
                 [ SigD
-                    (mkName $ "param_"++str) 
+                    (mkName $ "param_"++paramname) 
                     (AppT
                         (AppT
                             ArrowT
@@ -279,6 +295,93 @@ mkParamClass str qparamT = do
                         paramT)
                 ]
             ]
+
+-- | Creates classes of the form:
+--
+-- class SetParam_paramname m where
+--      paramname :: paramT -> DefParam Param_paramname m
+--
+mkSetParamClass :: String -> Q Type -> Q [Dec]
+mkSetParamClass paramname qparamT = do
+    paramT <- qparamT
+    isDef <- lookupTypeName $ "SetParam_"++paramname
+    return $ case isDef of
+        Just _ -> []
+        Nothing ->
+            [ ClassD
+                []
+                (mkName $ "SetParam_"++paramname)
+                [PlainTV $ mkName "m"]
+                []
+                [SigD
+                    (mkName $ paramname)
+                    (AppT
+                        (AppT
+                            ArrowT
+                            paramT
+                        )
+                        (AppT
+                            (AppT
+                                (ConT $ mkName "DefParam")
+                                (ConT $ mkName $ "Param_"++paramname)
+                            )
+                            (VarT $ mkName "m")
+                        )
+                    )
+                ]
+            ]
+
+--
+-- instance (KnownNat paramName) => Param_paramName (Just paramName) where
+--      param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
+--
+-- | Creates instances of the form:
+--
+-- instance SetParam_paramname dataname where
+--      paramname = SetParam_dataName_paramname
+--
+mkSetParamInstances :: String -> Type -> Name -> Q [Dec]
+mkSetParamInstances paramStr paramType dataName  = do
+    c <- TH.reify dataName
+    let tyVarL = case c of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+            otherwise -> error $ "mkSetParamInstances patern match failed; c = "++show c
+
+    let tyVarL' = filter filtergo tyVarL
+        filtergo (KindedTV n k) = nameBase n==paramStr
+        filtergo (PlainTV n) = nameBase n == paramStr
+
+    let [KindedTV paramName _] = tyVarL'
+
+    return
+        [ InstanceD
+            [ ]
+            (AppT 
+                (ConT $ mkName $ "SetParam_"++nameBase paramName)
+                (tyVarL2Type tyVarL (PromotedT $ mkName "Nothing") )
+            )
+            [ FunD
+                ( mkName $ nameBase paramName )
+                [ Clause
+                    [ ]
+                    (NormalB $ (ConE $ mkName $ "SetParam_"++nameBase dataName++"_"++nameBase paramName))
+                    []
+                ]
+            ]
+        ]
+    where
+        tyVarL2Type xs matchType = go $ reverse xs
+            where
+                go [] = ConT $ mkName $ nameBase dataName
+                go ((PlainTV n):xs) = AppT (go xs) (VarT n)
+                go ((KindedTV n k):xs) = AppT (go xs) $ if nameBase n==paramStr
+                    then matchType 
+                    else (VarT n)
+
+-- class SetParamA m where
+--     a :: Int -> DefParam ParamA m
 
 mkReifiableConstraint :: Name -> Q [Dec]
 mkReifiableConstraint c = do
@@ -288,6 +391,11 @@ mkReifiableConstraint c = do
             otherwise -> error "mkReifiableConstraint parameter must be a type class"
     mkReifiableConstraint' c funcL
 
+-- | creates instances of the form
+--
+-- instance ReifiableConstraint Def_Param_paramName where
+--      data Def (Def_Param_paramName) a = Param_paramName {}  
+--
 mkReifiableConstraint' :: Name -> [Dec] -> Q [Dec] 
 mkReifiableConstraint' c funcL = trace ("c="++show c) $ do
     isDef <- lookupTypeName $ nameBase c
@@ -373,30 +481,22 @@ mkReifiableConstraint' c funcL = trace ("c="++show c) $ do
 data ReflectionTest1 (a::Maybe Nat) = ReflectionTest1 Int 
     deriving (Read,Show,Eq,Ord)
 
--- instance (ParamA (ReflectionTest1 a)) => Monoid (ReflectionTest1 a) where
---     mempty = ReflectionTest1 a 
---         where
---             a = paramA (undefined::ReflectionTest1 a)
---     mappend a b = a
--- 
--- instance (ParamA (ReflectionTest1 a)) => HomTrainer (ReflectionTest1 a) where
---     type Datapoint (ReflectionTest1 a) = ()
---     train1dp dp = mempty
--- 
+instance (ParamA (ReflectionTest1 a)) => Monoid (ReflectionTest1 a) where
+    mempty = ReflectionTest1 a 
+        where
+            a = paramA (undefined::ReflectionTest1 a)
+    mappend a b = a
+
 
 data ReflectionTest (a::Maybe Nat) (b::Maybe Nat) = ReflectionTest Int Int Int
     deriving (Read,Show,Eq,Ord)
 
--- instance (ParamA (ReflectionTest a b), ParamB (ReflectionTest a b)) => Monoid (ReflectionTest a b) where
---     mempty = ReflectionTest a b $ a+b
---         where
---             a = paramA (undefined::ReflectionTest a b)
---             b = paramB (undefined::ReflectionTest a b)
---     mappend a b = a
--- 
--- instance (ParamA (ReflectionTest a b), ParamB (ReflectionTest a b)) => HomTrainer (ReflectionTest a b) where
---     type Datapoint (ReflectionTest a b) = ()
---     train1dp dp = mempty
+instance (ParamA (ReflectionTest a b), ParamB (ReflectionTest a b)) => Monoid (ReflectionTest a b) where
+    mempty = ReflectionTest a b $ a+b
+        where
+            a = paramA (undefined::ReflectionTest a b)
+            b = paramB (undefined::ReflectionTest a b)
+    mappend a b = a
 
 ---------------------------------------
 
