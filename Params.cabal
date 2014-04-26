@@ -1,0 +1,62 @@
+Name:                params
+Version:             0.0.1.0
+Synopsis:            Efficient parameters representation at the type or value level
+Description:         
+Category:            Data Mining, Machine Learning, Algorithms, Data structures
+License:             BSD3
+License-file:        LICENSE
+Author:              Mike izbicki
+Maintainer:          mike@izbicki.me
+Build-Type:          Simple
+Cabal-Version:       >=1.8
+homepage:            http://github.com/mikeizbicki/params/
+bug-reports:         http://github.com/mikeizbicki/params/issues
+
+Library
+    Build-Depends:      
+        -- common dependencies
+        base                >= 3 && < 5,
+        template-haskell,
+        deepseq             >= 1.3,
+
+        -- 
+        tagged              >= 0.7,
+        reflection          >= 1.3,
+        constraints         >= 0.3.4,
+
+        -- examples
+        vector              >= 0.10,
+        primitive           >= 0.5,
+        ghc-prim            
+        
+    hs-source-dirs:     
+        src
+
+    ghc-options:        
+        -fllvm
+        -O2
+        -funbox-strict-fields
+
+    Exposed-modules:
+        Data.Params
+        Data.Params.Vector
+        Data.Params.FastVector
+
+    Extensions:
+        FlexibleInstances
+        FlexibleContexts
+        MultiParamTypeClasses
+        FunctionalDependencies
+        UndecidableInstances
+        ScopedTypeVariables
+        BangPatterns
+        TypeOperators
+        GeneralizedNewtypeDeriving
+        --DataKinds
+        TypeFamilies
+        --PolyKinds
+        StandaloneDeriving
+        GADTs
+        KindSignatures
+        ConstraintKinds
+
