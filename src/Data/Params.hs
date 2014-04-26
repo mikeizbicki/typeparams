@@ -1,5 +1,5 @@
-{-# LANGUAGE DataKinds,PolyKinds,QuasiQuotes,RankNTypes,MultiParamTypeClasses,FlexibleContexts,UndecidableInstances,TemplateHaskell #-}
-
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Data.Params
     ( 
     intparam 
@@ -32,12 +32,15 @@ import Data.Constraint.Unsafe
 import Data.Reflection
 import Data.Proxy
 
-
 import Language.Haskell.TH hiding (reify)
 import Language.Haskell.TH.Syntax hiding (reify)
 import qualified Language.Haskell.TH as TH
 
 -------------------------------------------------------------------------------
+
+-- | Use this function for getting the type parameter value from an 'Int'.
+-- It has proper inlining to ensure that the 'fromIntegral' gets computed
+-- at compile time.
 
 {-# INLINE [1] intparam #-}
 intparam :: forall n. KnownNat n => Proxy (n::Nat) -> Int
@@ -188,7 +191,7 @@ mkParamInstance paramStr paramType dataName  = do
                             (AppE
                                 (VarE $ mkName "natVal")
                                 (SigE
-                                    (VarE $ mkName "Proxy")
+                                    (ConE $ mkName "Proxy")
                                     (AppT
                                         (ConT $ mkName "Proxy")
                                         (VarT paramName)
