@@ -69,3 +69,4 @@ of the dynamic variable is read from stdin.
 >       putStrLn $ "dynamic = " ++ show dynamic
 
 That's it!
+Check out the next example for an interesting twist using nearest neighbor searches.

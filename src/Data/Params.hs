@@ -1,25 +1,78 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
+
+-- | This module allows relatively simple type level parameters.
+-- Unlike most Haskell libraries, the type signatures here are not much help.
+-- It is easier to see how to use the library with an example.
+--
+-- The classic example for using type parameters is to create a list whose size is 
+-- represented in the type.  
+-- For example:
+-- 
+-- > newtype StaticList (len::Param Nat) a = StaticList [a]
+-- >     deriving (Read,Show,Eq,Ord)
+-- >
+-- > mkParams ''StaticList
+-- 
+-- The 'mkParams' function creates a number of helper classes and instances.
+-- It inspects the type parameters whose kind is a 'Param' something, and ignores
+-- the rest.
+-- In this case, we create a type class called Param_len.
+-- Our StaticList will be an instance of this type class whenever the len parameter
+-- is valid.
+-- More details on this in the next section.
+-- For now, we'll see how to use the length information by creating a Monoid 
+-- instance.
+-- Notice that the param_len function is used to extract the type level length.
+-- 
+-- > instance 
+-- >   ( Monoid a
+-- >   , Param_len (StaticList len a)
+-- >   ) => Monoid (StaticList len a) 
+-- >       where
+-- >
+-- >       mempty = StaticList $ replicate n mempty
+-- >           where 
+-- >               n = param_len (undefined::StaticList len a)
+-- >
+-- >       mappend (StaticList a) (StaticList b) = StaticList $ zipWith mappend a b
+-- 
+-- So that's how we use the type level information.
+-- Now we need to see how to set the information.
+-- In the following simple main function, we create two variables.
+-- The length of the static variable is determined at compile time, whereas the length
+-- of the dynamic variable is read from stdin.
+-- 
+-- > main = do
+-- >       putStr "Enter a size for the dynamic list: "
+-- >       size <- readLn
+-- >       let static  =                     mempty :: StaticList (Static 5) (Maybe [Int])
+-- >       let dynamic = setParam (len size) mempty :: StaticList RunTime    (Maybe [Int])
+-- >       putStrLn $ "static  = " ++ show static
+-- >       putStrLn $ "dynamic = " ++ show dynamic
+-- 
+-- This example can be found in more detail <https://github.com/mikeizbicki/typeparams/blob/master/examples/example1-StaticList.lhs on github>.
+-- There are many more examples of advanced features in the repository.
+
 module Data.Params
     ( 
-    intparam 
 
-    -- * Basic functions
-    , Param (..)
+    -- * Basic 
+    Param (..)
     , mkParams
 
     , withParam
     , withParam2
     , withParam3
 
-    -- * Advanced  code
+    -- * Advanced 
     -- | The code in this section is only for advanced users when the 'mkParams'
     -- function proves insufficient for some reason.
     -- Getting the types to work out by hand can be rather complicated...
     -- if you must use these functions, then you'll probably need some migraine
     -- medication afterward.
 
-    -- ** template haskell generating code
+    -- ** Template haskell generating code
     , mkParamClass
     , mkParamInstance
     , mkSetParamClass
@@ -27,14 +80,21 @@ module Data.Params
     , mkReifiableConstraint
     , mkReifiableConstraint'
 
-    -- ** general parameter classes
+    -- ** General parameter classes
+    -- | These classes were shamelessly stollen from <https://www.fpcomplete.com/user/thoughtpolice/using-reflection this excellent reflection tutorial>.
+    -- If you want to understand how this library works, that's the place to start.
     , ReifiableConstraint(..)
     , SetParam (..)
     , ConstraintLift (..)
+
+    -- ** Helper functions
     , using
+    , intparam 
 
     -- * Modules
     , module GHC.TypeLits
+    , module Data.Params.Frac
+
     , module Data.Reflection
     , module Data.Proxy
     , module Data.Constraint
@@ -48,10 +108,14 @@ import Language.Haskell.TH.Syntax hiding (reify)
 import qualified Language.Haskell.TH as TH
 
 import GHC.TypeLits
+import Data.Params.Frac
+
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
 import Data.Proxy
+
+import Debug.Trace
 
 -------------------------------------------------------------------------------
 
@@ -82,10 +146,12 @@ return $
 -------------------------------------------------------------------------------
 -- types
 
+-- | (Kind) Specifies that the type parameter can be known either statically
+-- or dynamically.
 data Param a 
-    = RunTime 
-    | Static a
-    | Automatic 
+    = Static a -- ^ The parameter is statically set to 'a'
+    | RunTime  -- ^ The parameter is determined at run time using the 'withParam' functions
+    | Automatic -- ^ The parameter is determined at run time and the value is inferred automatically without user specification
 
 ---------------------------------------
 
@@ -126,13 +192,16 @@ using2 (p1,p2) f = using p1 $ using p2 $ f
 -------------------
 -- for external use
 
+-- | dynamically specifies a single 'RunTime' parameter
 withParam :: SetParam p m => DefParam p m -> (p m => m) -> m
 withParam = setParam
 
+-- | dynamically specifies two 'RunTime' parameters
 withParam2 :: (SetParam p1 m, SetParam p2 m) => 
     DefParam p1 m -> DefParam p2 m -> ((p1 m, p2 m) => m) -> m
 withParam2 p1 p2 f = setParam p1 $ setParam p2 $ f
 
+-- | dynamically specifies three 'RunTime' parameters
 withParam3 :: (SetParam p1 m, SetParam p2 m, SetParam p3 m) =>
     DefParam p1 m -> DefParam p2 m -> DefParam p3 m -> ((p1 m, p2 m, p3 m) => m) -> m
 withParam3 p1 p2 p3 f = setParam p1 $ setParam p2 $ setParam p3 $ f
@@ -140,6 +209,12 @@ withParam3 p1 p2 p3 f = setParam p1 $ setParam p2 $ setParam p3 $ f
 -------------------------------------------------------------------------------
 -- template haskell
  
+-- | Constructs all the needed type classes and instances in order to use
+-- typeparams in a simple manner.  Example usage:
+--
+-- > data NearestNeighbor (k :: Param Nat) (maxdist :: Param Float) elem = ...
+-- > mkParams ''NearestNeighbor
+--
 mkParams :: Name -> Q [Dec]
 mkParams dataName = do
     tmp <- TH.reify dataName
@@ -152,7 +227,7 @@ mkParams dataName = do
         filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
         filtergo _ = False
         mapgo (KindedTV name (AppT _ k)) = 
-            (nameBase name,k,sing_kind2type k)
+            (nameBase name,k,kind2type k)
 
 
     paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass n $ return t) varL' 
@@ -167,11 +242,39 @@ mkParams dataName = do
 
     return $ paramClass++reifiableC++paramInsts++setParamClass++setParamInsts
 
-sing_kind2type :: Type -> Type
-sing_kind2type (AppT ListT t) = AppT ListT $ sing_kind2type t
-sing_kind2type (ConT n) = ConT $ mkName $ case nameBase n of
+---------------------------------------
+-- convert kinds into other objects
+
+kind2type :: Type -> Type
+kind2type (AppT ListT t) = AppT ListT $ kind2type t
+kind2type (ConT n) = ConT $ mkName $ case nameBase n of
     "Nat" -> "Int"
-    otherwise -> error $ "error kind2type: nameBase n = " ++ nameBase n
+    "Frac" -> "Rational"
+    "Symbol" -> "String"
+    str -> error $ "mkParams does not currently support custom type "++str
+--     kind -> kind
+
+kind2constraint :: Type -> Name
+kind2constraint (AppT _ t) = kind2constraint t
+kind2constraint (ConT n) = mkName $ case nameBase n of
+    "Nat" -> "KnownNat"
+    "Frac" -> "KnownFrac"
+    "Symbol" -> "KnownSymbol"
+
+kind2val :: Type -> Name
+kind2val (AppT _ t) = kind2val t
+kind2val (ConT n) = mkName $ case nameBase n of
+    "Nat" -> "intparam"
+    "Frac" -> "fracVal"
+    "Symbol" -> "symbolVal"
+
+kind2convert :: Type -> Name
+kind2convert (AppT _ t) = kind2convert t
+kind2convert (ConT n) = mkName $ case nameBase n of
+    "Nat" -> "id"
+    "Frac" -> "fromRational"
+    "Symbol" -> "id"
+    _ -> "id"
 
 param2class :: Name -> Name
 param2class p = mkName $ "Param_" ++ nameBase p
@@ -179,12 +282,8 @@ param2class p = mkName $ "Param_" ++ nameBase p
 param2func :: Name -> Name
 param2func p = mkName $ "param_" ++ nameBase p
 
--- mkValidParams :: [String] -> Name -> Q [Dec]
--- mkValidParams paramStrL dataName = do
---     return 
---         [ ClassD
---             []
---             (mkName $ "AllParamsDefined_"++nameBase dataName)
+---------------------------------------
+-- helper TH functions
 
 -- | creates instances of the form
 --
@@ -208,12 +307,13 @@ mkParamInstance paramStr paramType dataName  = do
         filtergo (KindedTV n k) = nameBase n==paramStr
         filtergo (PlainTV n) = nameBase n == paramStr
 
-    let [KindedTV paramName _] = tyVarL'
+    let [KindedTV paramName paramKind] = tyVarL'
 
     return
         [ InstanceD
             [ ClassP
-                (mkName "KnownNat")
+--                 (trace ("paramType="++show paramKind) $ mkName "KnownNat")
+                ( kind2constraint paramKind )
                 [ VarT paramName ]
             ]
             (AppT 
@@ -225,9 +325,11 @@ mkParamInstance paramStr paramType dataName  = do
                     [ VarP $ mkName "m" ]
                     (NormalB $
                         (AppE
-                            (VarE $ mkName "fromIntegral")
+                            (VarE $ kind2convert paramKind)
+--                             (VarE $ mkName "fromIntegral")
                             (AppE
-                                (VarE $ mkName "natVal")
+--                                 (VarE $ mkName "natVal")
+                                (VarE $ kind2val paramKind)
                                 (SigE
                                     (ConE $ mkName "Proxy")
                                     (AppT

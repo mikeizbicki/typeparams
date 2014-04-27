@@ -41,7 +41,7 @@ import Data.Params
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
 
-data family Vector (len::Maybe Nat) elem
+data family Vector (len::Param Nat) elem
 
 instance (Show elem, VG.Vector (Vector len) elem) => Show (Vector len elem) where
     show v = "fromList "++show (VG.toList v)
@@ -55,18 +55,18 @@ instance (Ord elem, VG.Vector (Vector len) elem) => Ord (Vector len elem) where
 ---------------------------------------
 -- fixed size 
 
-newtype instance Vector (Just len) elem = Vector ByteArray
+newtype instance Vector (Static len) elem = Vector ByteArray
 
 mkParams ''Vector
 
 
-instance NFData (Vector (Just len) elem) where
+instance NFData (Vector (Static len) elem) where
     rnf a = seq a ()
 
 instance 
     ( Prim elem 
     , KnownNat len
-    ) => VG.Vector (Vector (Just len)) elem 
+    ) => VG.Vector (Vector (Static len)) elem 
         where
     
     {-# INLINE basicUnsafeFreeze #-}
@@ -98,29 +98,29 @@ instance
 ---------------------------------------
 -- automatically sized
 
-newtype instance Vector Nothing elem = Vector_Nothing (VP.Vector elem)
+newtype instance Vector Automatic elem = Vector_Automatic (VP.Vector elem)
 
-instance NFData elem => NFData (Vector Nothing elem) where
-    rnf (Vector_Nothing v) = rnf v
+instance NFData elem => NFData (Vector Automatic elem) where
+    rnf (Vector_Automatic v) = rnf v
 
-instance Prim elem => VG.Vector (Vector Nothing) elem where 
+instance Prim elem => VG.Vector (Vector Automatic) elem where 
     {-# INLINE basicUnsafeFreeze #-}
-    basicUnsafeFreeze (MVector_Nothing v) = Vector_Nothing `liftM` VG.basicUnsafeFreeze v
+    basicUnsafeFreeze (MVector_Automatic v) = Vector_Automatic `liftM` VG.basicUnsafeFreeze v
 
     {-# INLINE basicUnsafeThaw #-}
-    basicUnsafeThaw (Vector_Nothing v) = MVector_Nothing `liftM` VG.basicUnsafeThaw v
+    basicUnsafeThaw (Vector_Automatic v) = MVector_Automatic `liftM` VG.basicUnsafeThaw v
 
     {-# INLINE basicLength #-}
-    basicLength (Vector_Nothing v) = VG.basicLength v
+    basicLength (Vector_Automatic v) = VG.basicLength v
 
     {-# INLINE basicUnsafeSlice #-}
-    basicUnsafeSlice i m (Vector_Nothing v) = Vector_Nothing $ VG.basicUnsafeSlice i m v
+    basicUnsafeSlice i m (Vector_Automatic v) = Vector_Automatic $ VG.basicUnsafeSlice i m v
 
     {-# INLINE basicUnsafeIndexM #-}
-    basicUnsafeIndexM (Vector_Nothing v) i = VG.basicUnsafeIndexM v i
+    basicUnsafeIndexM (Vector_Automatic v) i = VG.basicUnsafeIndexM v i
 
     {-# INLINE basicUnsafeCopy #-}
-    basicUnsafeCopy (MVector_Nothing mv) (Vector_Nothing v) = VG.basicUnsafeCopy mv v
+    basicUnsafeCopy (MVector_Automatic mv) (Vector_Automatic v) = VG.basicUnsafeCopy mv v
 
     {-# INLINE elemseq #-}
     elemseq _ = seq
@@ -130,17 +130,17 @@ instance Prim elem => VG.Vector (Vector Nothing) elem where
 
 type instance VG.Mutable (Vector len) = MVector len
 
-data family MVector (len::Maybe Nat) s elem
+data family MVector (len::Param Nat) s elem
 
 ---------------------------------------
 -- fixed size
 
-newtype instance MVector (Just len) s elem = MVector (MutableByteArray s)
+newtype instance MVector (Static len) s elem = MVector (MutableByteArray s)
 
 instance 
     ( Prim elem
     , KnownNat len
-    ) => VGM.MVector (MVector (Just len)) elem 
+    ) => VGM.MVector (MVector (Static len)) elem 
         where
 
     {-# INLINE basicLength #-}
@@ -185,35 +185,35 @@ instance
 ---------------------------------------
 -- variable size
 
-newtype instance MVector Nothing s elem = MVector_Nothing (VPM.MVector s elem)
+newtype instance MVector Automatic s elem = MVector_Automatic (VPM.MVector s elem)
 mkParams ''MVector
 
-instance Prim elem => VGM.MVector (MVector Nothing) elem where
+instance Prim elem => VGM.MVector (MVector Automatic) elem where
 
     {-# INLINE basicLength #-}
-    basicLength (MVector_Nothing v) = VGM.basicLength v
+    basicLength (MVector_Automatic v) = VGM.basicLength v
 
     {-# INLINE basicUnsafeSlice #-}
-    basicUnsafeSlice i m (MVector_Nothing v) = MVector_Nothing $ VGM.basicUnsafeSlice i m v
+    basicUnsafeSlice i m (MVector_Automatic v) = MVector_Automatic $ VGM.basicUnsafeSlice i m v
 
     {-# INLINE basicOverlaps #-}
-    basicOverlaps (MVector_Nothing v1) (MVector_Nothing v2) = VGM.basicOverlaps v1 v2
+    basicOverlaps (MVector_Automatic v1) (MVector_Automatic v2) = VGM.basicOverlaps v1 v2
 
     {-# INLINE basicUnsafeNew #-}
-    basicUnsafeNew i = MVector_Nothing `liftM` VGM.basicUnsafeNew i
+    basicUnsafeNew i = MVector_Automatic `liftM` VGM.basicUnsafeNew i
 
     {-# INLINE basicUnsafeRead #-}
-    basicUnsafeRead (MVector_Nothing v) i = VGM.basicUnsafeRead v i
+    basicUnsafeRead (MVector_Automatic v) i = VGM.basicUnsafeRead v i
 
     {-# INLINE basicUnsafeWrite #-}
-    basicUnsafeWrite (MVector_Nothing v) i x = VGM.basicUnsafeWrite v i x
+    basicUnsafeWrite (MVector_Automatic v) i x = VGM.basicUnsafeWrite v i x
 
     {-# INLINE basicUnsafeCopy #-}
-    basicUnsafeCopy (MVector_Nothing v1) (MVector_Nothing v2) = VGM.basicUnsafeCopy v1 v2
+    basicUnsafeCopy (MVector_Automatic v1) (MVector_Automatic v2) = VGM.basicUnsafeCopy v1 v2
 
     {-# INLINE basicUnsafeMove #-}
-    basicUnsafeMove (MVector_Nothing v1) (MVector_Nothing v2) = VGM.basicUnsafeMove v1 v2
+    basicUnsafeMove (MVector_Automatic v1) (MVector_Automatic v2) = VGM.basicUnsafeMove v1 v2
 
     {-# INLINE basicSet #-}
-    basicSet (MVector_Nothing v) x = VGM.basicSet v x
+    basicSet (MVector_Automatic v) x = VGM.basicSet v x
 
