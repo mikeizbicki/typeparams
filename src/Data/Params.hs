@@ -3,13 +3,34 @@
 module Data.Params
     ( 
     intparam 
+
+    -- * Basic functions
+    , Param (..)
     , mkParams
 
-    -- * Parameter Classes
+    , withParam
+    , withParam2
+    , withParam3
+
+    -- * Advanced  code
+    -- | The code in this section is only for advanced users when the 'mkParams'
+    -- function proves insufficient for some reason.
+    -- Getting the types to work out by hand can be rather complicated...
+    -- if you must use these functions, then you'll probably need some migraine
+    -- medication afterward.
+
+    -- ** template haskell generating code
+    , mkParamClass
+    , mkParamInstance
+    , mkSetParamClass
+    , mkSetParamInstance
+    , mkReifiableConstraint
+    , mkReifiableConstraint'
+
+    -- ** general parameter classes
     , ReifiableConstraint(..)
     , SetParam (..)
     , ConstraintLift (..)
-
     , using
 
     -- * Modules
@@ -22,20 +43,15 @@ module Data.Params
     where
 
 import Control.Monad
-import Data.List hiding ((\\))
-import Data.Maybe
-import Data.Monoid
-import Debug.Trace
+import Language.Haskell.TH hiding (reify)
+import Language.Haskell.TH.Syntax hiding (reify)
+import qualified Language.Haskell.TH as TH
 
 import GHC.TypeLits
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
 import Data.Proxy
-
-import Language.Haskell.TH hiding (reify)
-import Language.Haskell.TH.Syntax hiding (reify)
-import qualified Language.Haskell.TH as TH
 
 -------------------------------------------------------------------------------
 
@@ -66,9 +82,12 @@ return $
 -------------------------------------------------------------------------------
 -- types
 
--- data Param a = ParamUndef | RunTimeParam | SetParam a
--- :: Regression (Double,Double) [setparam| expr = 1 +x, method = linear |]
--- :: Regression (# Double,Double #) { expr = "1+x", method = Ridge { lambda = 0.4 } }
+data Param a 
+    = RunTime 
+    | Static a
+    | Automatic 
+
+---------------------------------------
 
 newtype ConstraintLift (p :: * -> Constraint) (a :: *) (s :: *) = ConstraintLift { lower :: a }
 
@@ -81,6 +100,7 @@ class SetParam p m where
     setParam :: DefParam p m -> (p m => m) -> m
 
 ---------------------------------------
+-- shamelessly stolen functions for internal use only
 
 asProxyOf :: f s -> Proxy s -> f s
 asProxyOf v _ = v
@@ -103,9 +123,19 @@ using2 :: (ReifiableConstraint p1, ReifiableConstraint p2) =>
     (Def p1 a, Def p2 a) -> ((p1 a, p2 a) => a) -> a
 using2 (p1,p2) f = using p1 $ using p2 $ f
 
-setParam2 :: (SetParam p1 m, SetParam p2 m) => 
+-------------------
+-- for external use
+
+withParam :: SetParam p m => DefParam p m -> (p m => m) -> m
+withParam = setParam
+
+withParam2 :: (SetParam p1 m, SetParam p2 m) => 
     DefParam p1 m -> DefParam p2 m -> ((p1 m, p2 m) => m) -> m
-setParam2 p1 p2 f = setParam p1 $ setParam p2 $ f
+withParam2 p1 p2 f = setParam p1 $ setParam p2 $ f
+
+withParam3 :: (SetParam p1 m, SetParam p2 m, SetParam p3 m) =>
+    DefParam p1 m -> DefParam p2 m -> DefParam p3 m -> ((p1 m, p2 m, p3 m) => m) -> m
+withParam3 p1 p2 p3 f = setParam p1 $ setParam p2 $ setParam p3 $ f
 
 -------------------------------------------------------------------------------
 -- template haskell
@@ -119,7 +149,7 @@ mkParams dataName = do
             FamilyI (FamilyD _ _ xs _) _ -> xs
 
     let varL' = map mapgo $ filter filtergo varL
-        filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Maybe"
+        filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
         filtergo _ = False
         mapgo (KindedTV name (AppT _ k)) = 
             (nameBase name,k,sing_kind2type k)
@@ -133,18 +163,14 @@ mkParams dataName = do
     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
 
     setParamClass <- liftM concat $ mapM (\(n,k,t) -> mkSetParamClass n $ return t) varL'
-    setParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkSetParamInstances n t dataName) varL' 
+    setParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkSetParamInstance n t dataName) varL' 
 
-    trace ("varL' = "++show varL') $ 
-        return $ paramClass++reifiableC++paramInsts++setParamClass++setParamInsts
---     trace ("varL' = "++show varL') $ return []
+    return $ paramClass++reifiableC++paramInsts++setParamClass++setParamInsts
 
 sing_kind2type :: Type -> Type
 sing_kind2type (AppT ListT t) = AppT ListT $ sing_kind2type t
 sing_kind2type (ConT n) = ConT $ mkName $ case nameBase n of
     "Nat" -> "Int"
-    "TermT" -> "Term"
-    "Method" -> "Method"
     otherwise -> error $ "error kind2type: nameBase n = " ++ nameBase n
 
 param2class :: Name -> Name
@@ -162,12 +188,12 @@ param2func p = mkName $ "param_" ++ nameBase p
 
 -- | creates instances of the form
 --
--- instance (KnownNat paramName) => Param_paramName (Just paramName) where
---      param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
---
--- instance SetParam Param_paramName (dataName) where
---      data DefParam Param_paramName (dataName ...) = SetParam_dataName_paramName (...)
---      setParam = (...)
+-- > instance (KnownNat paramName) => Param_paramName (Static paramName) where
+-- >     param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
+-- >
+-- > instance SetParam Param_paramName (dataName) where
+-- >     data DefParam Param_paramName (dataName ...) = SetParam_dataName_paramName (...)
+-- >     setParam = (...)
 --
 mkParamInstance :: String -> Type -> Name -> Q [Dec]
 mkParamInstance paramStr paramType dataName  = do
@@ -192,7 +218,7 @@ mkParamInstance paramStr paramType dataName  = do
             ]
             (AppT 
                 (ConT $ param2class paramName)
-                (tyVarL2Type tyVarL (AppT (PromotedT $ mkName "Just") (VarT paramName))))
+                (tyVarL2Type tyVarL (AppT (PromotedT $ mkName "Static") (VarT paramName))))
             [ FunD
                 ( mkName $ "param_"++nameBase paramName )
                 [ Clause
@@ -222,12 +248,12 @@ mkParamInstance paramStr paramType dataName  = do
                     (ConT $ mkName "SetParam")
                     (ConT (param2class paramName))
                 )
-                (tyVarL2Type tyVarL (PromotedT $ mkName "Nothing"))
+                (tyVarL2Type tyVarL (PromotedT $ mkName "RunTime"))
             )
             [ DataInstD
                 []
                 (mkName $ "DefParam")
-                [ ConT $ param2class paramName, tyVarL2Type tyVarL (PromotedT $ mkName "Nothing") ]
+                [ ConT $ param2class paramName, tyVarL2Type tyVarL (PromotedT $ mkName "RunTime") ]
                 [ RecC 
                     (mkName $ "SetParam_"++nameBase dataName++"_"++nameBase paramName)
                     [(mkName $ "unSetParam_"++nameBase dataName++"_"++nameBase paramName,NotStrict,paramType)]
@@ -271,8 +297,8 @@ mkParamInstance paramStr paramType dataName  = do
 
 -- | Creates classes of the form
 --
--- class Param_paramname m where
---      param_paramname :: m -> paramT
+-- > class Param_paramname m where
+-- >     param_paramname :: m -> paramT
 --
 mkParamClass :: String -> Q Type -> Q [Dec]
 mkParamClass paramname qparamT = do
@@ -298,8 +324,8 @@ mkParamClass paramname qparamT = do
 
 -- | Creates classes of the form:
 --
--- class SetParam_paramname m where
---      paramname :: paramT -> DefParam Param_paramname m
+-- > class SetParam_paramname m where
+-- >     paramname :: paramT -> DefParam Param_paramname m
 --
 mkSetParamClass :: String -> Q Type -> Q [Dec]
 mkSetParamClass paramname qparamT = do
@@ -331,23 +357,19 @@ mkSetParamClass paramname qparamT = do
                 ]
             ]
 
---
--- instance (KnownNat paramName) => Param_paramName (Just paramName) where
---      param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
---
 -- | Creates instances of the form:
 --
--- instance SetParam_paramname dataname where
---      paramname = SetParam_dataName_paramname
+-- > instance SetParam_paramname dataname where
+-- >     paramname = SetParam_dataName_paramname
 --
-mkSetParamInstances :: String -> Type -> Name -> Q [Dec]
-mkSetParamInstances paramStr paramType dataName  = do
+mkSetParamInstance :: String -> Type -> Name -> Q [Dec]
+mkSetParamInstance paramStr paramType dataName  = do
     c <- TH.reify dataName
     let tyVarL = case c of
             TyConI (NewtypeD _ _ xs _ _) -> xs
             TyConI (DataD _ _ xs _ _ ) -> xs
             FamilyI (FamilyD _ _ xs _) _ -> xs
-            otherwise -> error $ "mkSetParamInstances patern match failed; c = "++show c
+            otherwise -> error $ "mkSetParamInstance patern match failed; c = "++show c
 
     let tyVarL' = filter filtergo tyVarL
         filtergo (KindedTV n k) = nameBase n==paramStr
@@ -360,7 +382,7 @@ mkSetParamInstances paramStr paramType dataName  = do
             [ ]
             (AppT 
                 (ConT $ mkName $ "SetParam_"++nameBase paramName)
-                (tyVarL2Type tyVarL (PromotedT $ mkName "Nothing") )
+                (tyVarL2Type tyVarL (PromotedT $ mkName "RunTime") )
             )
             [ FunD
                 ( mkName $ nameBase paramName )
@@ -380,9 +402,7 @@ mkSetParamInstances paramStr paramType dataName  = do
                     then matchType 
                     else (VarT n)
 
--- class SetParamA m where
---     a :: Int -> DefParam ParamA m
-
+-- | helper for 'mkReifiableConstraints''
 mkReifiableConstraint :: Name -> Q [Dec]
 mkReifiableConstraint c = do
     info <- TH.reify c
@@ -393,11 +413,11 @@ mkReifiableConstraint c = do
 
 -- | creates instances of the form
 --
--- instance ReifiableConstraint Def_Param_paramName where
---      data Def (Def_Param_paramName) a = Param_paramName {}  
+-- > instance ReifiableConstraint Def_Param_paramName where
+-- >     data Def (Def_Param_paramName) a = Param_paramName {}  
 --
 mkReifiableConstraint' :: Name -> [Dec] -> Q [Dec] 
-mkReifiableConstraint' c funcL = trace ("c="++show c) $ do
+mkReifiableConstraint' c funcL = do 
     isDef <- lookupTypeName $ nameBase c
     return $ case isDef of
         Just _ -> []
@@ -477,6 +497,7 @@ mkReifiableConstraint' c funcL = trace ("c="++show c) $ do
 
 -------------------------------------------------------------------------------
 -- test
+{-
 
 data ReflectionTest1 (a::Maybe Nat) = ReflectionTest1 Int 
     deriving (Read,Show,Eq,Ord)
@@ -584,4 +605,4 @@ instance ReifiableConstraint Monoid where
 instance Reifies s (Def Monoid a) => Monoid (ConstraintLift Monoid a s) where
     mappend a b = ConstraintLift $ mappend_ (reflect a) (lower a) (lower b) 
     mempty = a where a = ConstraintLift $ mempty_ (reflect a)
-
+-}
