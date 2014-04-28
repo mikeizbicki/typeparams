@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE OverlappingInstances #-}
 module Data.Params.Vector.Unboxed
     where
 
@@ -52,6 +53,11 @@ data instance Vector (Static len) elem = Vector
 
 mkParams ''Vector
 
+-- class SetParamInner n where
+--     setParamInner :: SetParam p m => DefParam p m -> ((p m) => n m) -> n m
+-- 
+-- instance SetParamInner (Vector len)
+--     setParamInner 
 
 instance NFData (Vector (Static len) elem) where
     rnf a = seq a ()
@@ -69,12 +75,12 @@ instance
     basicUnsafeThaw (Vector i arr) = MVector i `liftM` unsafeThawByteArray arr
 
     {-# INLINE [2] basicLength #-}
-    basicLength _ = intparam (Proxy::Proxy len)
+    basicLength _ = param_len (undefined::Vector (Static len) elem) 
 
     {-# INLINE basicUnsafeSlice #-}
-    basicUnsafeSlice j n v = if n /= intparam (Proxy::Proxy len) || j /= 0
+    basicUnsafeSlice j n v = if n /= param_len (undefined::Vector (Static len) elem) || j /= 0
         then error $ "Vector.basicUnsafeSlice not allowed to change size"
-        else v
+        else v 
 
     {-# INLINE basicUnsafeIndexM #-}
     basicUnsafeIndexM (Vector i arr) j = return $! indexByteArray arr (i+j)
@@ -83,7 +89,7 @@ instance
     basicUnsafeCopy (MVector i dst) (Vector j src) = copyByteArray dst (i*sz) src (j*sz) (len*sz)
         where
             sz = sizeOf (undefined :: elem)
-            len = intparam (Proxy::Proxy len)
+            len = param_len (undefined::Vector (Static len) elem)
 
     {-# INLINE elemseq #-}
     elemseq _ = seq
@@ -129,6 +135,91 @@ instance
                     iii = I# (i# *# (sizeOf# (undefined::Vector (Static len) elem)) +# (unInt i)) 
 
 ---------------------------------------
+-- RunTime size 
+
+data instance Vector RunTime elem = Vector_RunTime 
+    {-#UNPACK#-}!Int 
+    {-#UNPACK#-}!ByteArray
+
+instance NFData (Vector RunTime elem) where
+    rnf a = seq a ()
+
+instance 
+    ( Prim elem 
+    , Param_len (Vector RunTime elem)
+    ) => VG.Vector (Vector RunTime) elem 
+        where
+    
+    {-# INLINE basicUnsafeFreeze #-}
+    basicUnsafeFreeze (MVector_RunTime len i marr) = if len==param_len (undefined::Vector RunTime elem)
+        then Vector_RunTime i `liftM` unsafeFreezeByteArray marr
+        else error $ "basicUnsafeFreeze cannot change RunTime vector size"
+            ++ "; len="++show len
+            ++ "; param_len="++show (param_len (undefined::Vector RunTime elem))
+
+    {-# INLINE basicUnsafeThaw #-}
+    basicUnsafeThaw (Vector_RunTime i arr) = MVector_RunTime (param_len (undefined::Vector RunTime elem)) i `liftM` unsafeThawByteArray arr
+
+    {-# INLINE [2] basicLength #-}
+    basicLength _ = param_len (undefined::Vector RunTime elem) 
+
+    {-# INLINE basicUnsafeSlice #-}
+    basicUnsafeSlice j n v = if n /= param_len (undefined::Vector RunTime elem) || j /= 0
+        then error $ "Vector_RunTime.basicUnsafeSlice not allowed to change size"
+        else v 
+
+    {-# INLINE basicUnsafeIndexM #-}
+    basicUnsafeIndexM (Vector_RunTime i arr) j = return $! indexByteArray arr (i+j)
+
+    {-# INLINE basicUnsafeCopy #-}
+    basicUnsafeCopy (MVector_RunTime n i dst) (Vector_RunTime j src) = if n==len
+        then copyByteArray dst (i*sz) src (j*sz) (len*sz)
+        else error "basicUnsafeCopy cannot change RunTime vector size"
+        where
+            sz = sizeOf (undefined :: elem)
+            len = param_len (undefined::Vector RunTime elem)
+
+    {-# INLINE elemseq #-}
+    elemseq _ = seq
+
+-------------------
+
+instance
+    ( Prim elem
+    , Param_len (Vector RunTime elem)
+    ) => Prim (Vector RunTime elem)
+        where
+    
+    {-# INLINE sizeOf# #-}
+    sizeOf# _ = unInt (sizeOf (undefined::elem) * (param_len (undefined::Vector RunTime elem)))
+
+    {-# INLINE alignment# #-}
+    alignment# _ = unInt (sizeOf (undefined::elem) * (param_len (undefined::Vector RunTime elem)))
+
+    {-# INLINE indexByteArray# #-}
+    indexByteArray# arr# i# = Vector_RunTime ((I# i#)*(param_len (undefined::Vector RunTime elem))) (ByteArray arr#)
+
+    {-# INLINE readByteArray# #-}
+    readByteArray# marr# i# s# = (# s#, Vector_RunTime (I# i#) (ByteArray (unsafeCoerce# marr#)) #)
+
+    {-# INLINE writeByteArray# #-}
+    writeByteArray# marr# i# x s# = go 0 s#
+        where
+            go i s = ( if i >= len
+                then s
+                else go (i+1) 
+                        (writeByteArray# marr# 
+                            (i# *# (unInt len) +# (unInt i)) 
+                            (x VG.! i)
+                            s
+                        )
+                    )
+                where 
+                    len = param_len (undefined::Vector RunTime elem)
+                    iii = I# (i# *# (sizeOf# (undefined::Vector RunTime elem)) +# (unInt i)) 
+
+
+---------------------------------------
 -- Automatic sized
 
 newtype instance Vector Automatic elem = Vector_Automatic (VP.Vector elem)
@@ -162,6 +253,9 @@ instance Prim elem => VG.Vector (Vector Automatic) elem where
 -- mutable vector
 
 type instance VG.Mutable (Vector len) = MVector len
+-- type instance VG.Mutable (Vector (Static len)) = MVector (Static len)
+-- type instance VG.Mutable (Vector Automatic) = MVector Automatic
+-- type instance VG.Mutable (Vector RunTime) = MVector Automatic
 
 data family MVector (len::Param Nat) s elem
 
@@ -179,12 +273,17 @@ instance
         where
 
     {-# INLINE basicLength #-}
-    basicLength _ = intparam (Proxy::Proxy len) 
+    basicLength _ = param_len (undefined::MVector (Static len) s elem) 
     
     {-# INLINE basicUnsafeSlice #-}
-    basicUnsafeSlice i m v = if m /= intparam (Proxy::Proxy len)
-        then error $ "MVector.basicUnsafeSlice not allowed to change size; i="++show i++"; m="++show m++"; len="++show (intparam (Proxy::Proxy len))
+    basicUnsafeSlice i m v = if m /= len
+        then error $ "MVector.basicUnsafeSlice not allowed to change size"
+            ++"; i="++show i
+            ++"; m="++show m
+            ++"; len="++show len 
         else v
+        where
+            len = param_len (undefined::MVector (Static len) s elem)
  
     {-# INLINE basicOverlaps #-}
     basicOverlaps (MVector i arr1) (MVector j arr2)
@@ -221,6 +320,71 @@ instance
     {-# INLINE basicSet #-}
     basicSet (MVector i arr) x = setByteArray arr i (intparam(Proxy::Proxy len)) x
     
+
+---------------------------------------
+-- RunTime size
+
+data instance MVector RunTime s elem = MVector_RunTime
+    {-#UNPACK#-}!Int 
+    {-#UNPACK#-}!Int 
+    {-#UNPACK#-}!(MutableByteArray s)
+
+instance 
+    ( Prim elem
+    ) => VGM.MVector (MVector RunTime) elem 
+        where
+
+    {-# INLINE basicLength #-}
+    basicLength (MVector_RunTime n _ _) = n
+    
+    {-# INLINE basicUnsafeSlice #-}
+    basicUnsafeSlice i m (MVector_RunTime n j v) = MVector_RunTime m (i+j) v
+--     basicUnsafeSlice i m v = if m /= len
+--         then error $ "MVector.basicUnsafeSlice not allowed to change size"
+--             ++"; i="++show i
+--             ++"; m="++show m
+--             ++"; len="++show len 
+--         else v
+--         where
+--             len = VGM.length v
+ 
+    {-# INLINE basicOverlaps #-}
+    basicOverlaps (MVector_RunTime m i arr1) (MVector_RunTime n j arr2)
+        = sameMutableByteArray arr1 arr2
+        && (between i j (j+m) || between j i (i+n))
+            where
+                between x y z = x >= y && x < z
+
+    {-# INLINE basicUnsafeNew #-}
+    basicUnsafeNew n = MVector_RunTime n 0 `liftM` newPinnedByteArray (n * sizeOf (undefined :: elem))
+
+    {-# INLINE basicUnsafeRead #-}
+    basicUnsafeRead (MVector_RunTime _ i arr) j = readByteArray arr (i+j)
+
+    {-# INLINE basicUnsafeWrite #-}
+    basicUnsafeWrite (MVector_RunTime _ i arr) j x = writeByteArray arr (i+j) x
+
+
+--     {-# INLINE basicUnsafeCopy #-}
+--     basicUnsafeCopy (MVector_RunTime n i dst) (MVector_RunTime m j src) 
+--         = if n==m
+--             then copyMutableByteArray dst (i*sz) src (j*sz) (n*sz)
+--             else error "basicUnsafeCopy cannot change size of RunTime MVector"
+--         where
+--             sz = sizeOf (undefined :: elem)
+--                     
+--     {-# INLINE basicUnsafeMove #-}
+--     basicUnsafeMove (MVector_RunTime n i dst) (MVector_RunTime m j src) 
+--         = if n==m
+--             then moveByteArray dst (i*sz) src (j*sz) (n * sz)
+--             else error "basicUnsafeMove cannot change size of RunTime MVector"
+--         where
+--             sz = sizeOf (undefined :: elem)
+
+    {-# INLINE basicSet #-}
+    basicSet (MVector_RunTime n i arr) x = setByteArray arr i n x
+    
+
 ---------------------------------------
 -- Automatic size
 

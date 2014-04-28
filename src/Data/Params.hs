@@ -65,6 +65,11 @@ module Data.Params
     , withParam2
     , withParam3
 
+    , apWithParam
+    , withInnerParam
+--     , withInnerParam2
+--     , withInnerParam3
+
     -- * Advanced 
     -- | The code in this section is only for advanced users when the 'mkParams'
     -- function proves insufficient for some reason.
@@ -106,6 +111,7 @@ import Control.Monad
 import Language.Haskell.TH hiding (reify)
 import Language.Haskell.TH.Syntax hiding (reify)
 import qualified Language.Haskell.TH as TH
+import Data.Proxy
 
 import GHC.TypeLits
 import Data.Params.Frac
@@ -113,7 +119,7 @@ import Data.Params.Frac
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
-import Data.Proxy
+import Unsafe.Coerce
 
 import Debug.Trace
 
@@ -185,12 +191,21 @@ using d m = reify d $ \(_ :: Proxy s) ->
             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
     in m \\ replaceProof
     
-using2 :: (ReifiableConstraint p1, ReifiableConstraint p2) => 
-    (Def p1 a, Def p2 a) -> ((p1 a, p2 a) => a) -> a
-using2 (p1,p2) f = using p1 $ using p2 $ f
+usingInner :: forall p b a. ReifiableConstraint p => Def p a -> (p a => b a) -> b a
+usingInner d m = reify d $ \(_ :: Proxy s) ->
+    let replaceProof :: Reifies s (Def p a) :- p a
+        replaceProof = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
+    in m \\ replaceProof
+    
+-- usingInner :: forall p a. ReifiableConstraint p => Def p a -> (p a => b a) -> b a
+-- usingInner d m 
 
 -------------------
 -- for external use
+
+apWithParam :: SetParam p m => DefParam p m -> ((p m => m) -> n) -> n
+apWithParam p f = undefined
 
 -- | dynamically specifies a single 'RunTime' parameter
 withParam :: SetParam p m => DefParam p m -> (p m => m) -> m
@@ -205,6 +220,10 @@ withParam2 p1 p2 f = setParam p1 $ setParam p2 $ f
 withParam3 :: (SetParam p1 m, SetParam p2 m, SetParam p3 m) =>
     DefParam p1 m -> DefParam p2 m -> DefParam p3 m -> ((p1 m, p2 m, p3 m) => m) -> m
 withParam3 p1 p2 p3 f = setParam p1 $ setParam p2 $ setParam p3 $ f
+
+-- | dynamically specifies a single 'RunTime' parameter on the "inner" type
+withInnerParam :: forall p m n. SetParam p m => DefParam p m -> (p m => n m) -> n m
+withInnerParam = unsafeCoerce (withParam :: DefParam p m -> (p m => m) -> m)
 
 -------------------------------------------------------------------------------
 -- template haskell
@@ -241,6 +260,7 @@ mkParams dataName = do
     setParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkSetParamInstance n t dataName) varL' 
 
     return $ paramClass++reifiableC++paramInsts++setParamClass++setParamInsts
+--     return $ paramClass++reifiableC -- ++paramInsts -- ++setParamClass
 
 ---------------------------------------
 -- convert kinds into other objects
@@ -312,7 +332,6 @@ mkParamInstance paramStr paramType dataName  = do
     return
         [ InstanceD
             [ ClassP
---                 (trace ("paramType="++show paramKind) $ mkName "KnownNat")
                 ( kind2constraint paramKind )
                 [ VarT paramName ]
             ]
@@ -326,9 +345,7 @@ mkParamInstance paramStr paramType dataName  = do
                     (NormalB $
                         (AppE
                             (VarE $ kind2convert paramKind)
---                             (VarE $ mkName "fromIntegral")
                             (AppE
---                                 (VarE $ mkName "natVal")
                                 (VarE $ kind2val paramKind)
                                 (SigE
                                     (ConE $ mkName "Proxy")
@@ -385,7 +402,6 @@ mkParamInstance paramStr paramType dataName  = do
                     []
                 ]
             ]
-
         ]
 
     where
