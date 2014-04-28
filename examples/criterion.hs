@@ -54,6 +54,9 @@ main = do
     let vpus1 = VG.fromList dimL1 :: VPU.Vector (Static Veclen) Float
         vpus2 = VG.fromList dimL2 :: VPU.Vector (Static Veclen) Float
 
+--     let vpur1 = withParam (VPU.len veclen) $ VG.fromList dimL1 :: VPU.Vector Automatic Float
+--         vpur2 = withParam (VPU.len veclen) $ VG.fromList dimL2 :: VPU.Vector Automatic Float
+
     let vprs1 = VG.fromList dimL1 :: VPR.Vector (Static Veclen) Float
         vprs2 = VG.fromList dimL2 :: VPR.Vector (Static Veclen) Float
 

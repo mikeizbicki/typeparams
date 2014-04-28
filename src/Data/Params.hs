@@ -47,7 +47,7 @@
 -- >       putStr "Enter a size for the dynamic list: "
 -- >       size <- readLn
 -- >       let static  =                     mempty :: StaticList (Static 5) (Maybe [Int])
--- >       let dynamic = setParam (len size) mempty :: StaticList RunTime    (Maybe [Int])
+-- >       let dynamic = withParam (len size) mempty :: StaticList RunTime    (Maybe [Int])
 -- >       putStrLn $ "static  = " ++ show static
 -- >       putStrLn $ "dynamic = " ++ show dynamic
 -- 
@@ -65,10 +65,16 @@ module Data.Params
     , withParam2
     , withParam3
 
-    , apWithParam
     , withInnerParam
---     , withInnerParam2
---     , withInnerParam3
+    , withInnerParam2
+    , withInnerParam3
+
+    , apWithParam
+    , apWithInnerParam
+
+    -- ** Classes
+    , SetParam (..)
+    , WithParam (..)
 
     -- * Advanced 
     -- | The code in this section is only for advanced users when the 'mkParams'
@@ -80,8 +86,8 @@ module Data.Params
     -- ** Template haskell generating code
     , mkParamClass
     , mkParamInstance
-    , mkSetParamClass
-    , mkSetParamInstance
+    , mkWithParamClass
+    , mkWithParamInstance
     , mkReifiableConstraint
     , mkReifiableConstraint'
 
@@ -89,11 +95,12 @@ module Data.Params
     -- | These classes were shamelessly stollen from <https://www.fpcomplete.com/user/thoughtpolice/using-reflection this excellent reflection tutorial>.
     -- If you want to understand how this library works, that's the place to start.
     , ReifiableConstraint(..)
-    , SetParam (..)
+    , WithParam (..)
     , ConstraintLift (..)
 
     -- ** Helper functions
     , using
+    , using'
     , intparam 
 
     -- * Modules
@@ -161,28 +168,17 @@ data Param a
 
 ---------------------------------------
 
+---------------------------------------
+-- shamelessly stolen functions for internal use only
+
 newtype ConstraintLift (p :: * -> Constraint) (a :: *) (s :: *) = ConstraintLift { lower :: a }
 
 class ReifiableConstraint p where
     data Def (p :: * -> Constraint) (a:: *) :: *
     reifiedIns :: Reifies s (Def p a) :- p (ConstraintLift p a s)
 
-class SetParam p m where
-    data DefParam p m :: *
-    setParam :: DefParam p m -> (p m => m) -> m
-
----------------------------------------
--- shamelessly stolen functions for internal use only
-
 asProxyOf :: f s -> Proxy s -> f s
 asProxyOf v _ = v
-
-using' :: forall p a b. ReifiableConstraint p => Def p a -> (p a => a) -> (a -> b) -> b
-using' d m f = reify d $ \(_ :: Proxy s) ->
-    let replaceProof :: Reifies s (Def p a) :- p a
-        replaceProof = trans proof reifiedIns
-            where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
-    in (f m) \\ replaceProof
 
 using :: forall p a. ReifiableConstraint p => Def p a -> (p a => a) -> a
 using d m = reify d $ \(_ :: Proxy s) ->
@@ -190,7 +186,14 @@ using d m = reify d $ \(_ :: Proxy s) ->
         replaceProof = trans proof reifiedIns
             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
     in m \\ replaceProof
-    
+
+using' :: forall p a b. ReifiableConstraint p => Def p a -> (p a => a) -> (p a => a -> b) -> b
+using' d m f = reify d $ \(_ :: Proxy s) ->
+    let replaceProof :: Reifies s (Def p a) :- p a
+        replaceProof = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
+    in (f m) \\ replaceProof
+
 usingInner :: forall p b a. ReifiableConstraint p => Def p a -> (p a => b a) -> b a
 usingInner d m = reify d $ \(_ :: Proxy s) ->
     let replaceProof :: Reifies s (Def p a) :- p a
@@ -198,32 +201,80 @@ usingInner d m = reify d $ \(_ :: Proxy s) ->
             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
     in m \\ replaceProof
     
--- usingInner :: forall p a. ReifiableConstraint p => Def p a -> (p a => b a) -> b a
--- usingInner d m 
-
 -------------------
 -- for external use
 
-apWithParam :: SetParam p m => DefParam p m -> ((p m => m) -> n) -> n
-apWithParam p f = undefined
+class SetParam p m1 m2 | p m1 -> m2, p m2 -> m1 where
+    setParam :: DefParam p m1 -> (p m1 => m1) -> m2
 
--- | dynamically specifies a single 'RunTime' parameter
-withParam :: SetParam p m => DefParam p m -> (p m => m) -> m
-withParam = setParam
+class WithParam p m where
+    data DefParam p m :: *
+    
+    -- | dynamically specifies a single 'RunTime' parameter of function output
+    withParam :: DefParam p m -> (p m => m) -> m
 
--- | dynamically specifies two 'RunTime' parameters
-withParam2 :: (SetParam p1 m, SetParam p2 m) => 
+    -- | dynamically specifies a single 'RunTime' parameter of function input
+    apWithParam :: DefParam p m -> (p m => m -> n) -> (p m => m) -> n
+
+-- | dynamically specifies two 'RunTime' parameters of function output
+withParam2 :: (WithParam p1 m, WithParam p2 m) => 
     DefParam p1 m -> DefParam p2 m -> ((p1 m, p2 m) => m) -> m
-withParam2 p1 p2 f = setParam p1 $ setParam p2 $ f
+withParam2 p1 p2 f = withParam p1 $ withParam p2 $ f
 
--- | dynamically specifies three 'RunTime' parameters
-withParam3 :: (SetParam p1 m, SetParam p2 m, SetParam p3 m) =>
+-- | dynamically specifies three 'RunTime' parameters of function output
+withParam3 :: (WithParam p1 m, WithParam p2 m, WithParam p3 m) =>
     DefParam p1 m -> DefParam p2 m -> DefParam p3 m -> ((p1 m, p2 m, p3 m) => m) -> m
-withParam3 p1 p2 p3 f = setParam p1 $ setParam p2 $ setParam p3 $ f
+withParam3 p1 p2 p3 f = withParam p1 $ withParam p2 $ withParam p3 $ f
 
--- | dynamically specifies a single 'RunTime' parameter on the "inner" type
-withInnerParam :: forall p m n. SetParam p m => DefParam p m -> (p m => n m) -> n m
+-- | dynamically specifies a single 'RunTime' parameter on the "inner" type of function output
+withInnerParam :: forall p m n. WithParam p m => DefParam p m -> (p m => n m) -> n m
 withInnerParam = unsafeCoerce (withParam :: DefParam p m -> (p m => m) -> m)
+
+-- | dynamically specifies two 'RunTime' parameters on the "inner" type of function output
+withInnerParam2 :: forall p1 p2 m n. 
+    ( WithParam p1 m
+    , WithParam p2 m
+    ) => DefParam p1 m
+      -> DefParam p2 m
+      -> ((p1 m, p2 m) => n m) 
+      -> n m
+withInnerParam2 = unsafeCoerce (withParam2 
+    :: DefParam p1 m 
+    -> DefParam p2 m 
+    -> ((p1 m,p2 m) => m) 
+    -> m
+    )
+
+-- | dynamically specifies three 'RunTime' parameters on the "inner" type of function output
+withInnerParam3 :: forall p1 p2 p3 m n. 
+    ( WithParam p1 m
+    , WithParam p2 m
+    , WithParam p3 m
+    ) => DefParam p1 m
+      -> DefParam p2 m
+      -> DefParam p3 m
+      -> ((p1 m, p2 m, p3 m) => n m) 
+      -> n m
+withInnerParam3 = unsafeCoerce (withParam3 
+    :: DefParam p1 m 
+    -> DefParam p2 m 
+    -> DefParam p3 m 
+    -> ((p1 m,p2 m,p3 m) => m) 
+    -> m
+    )
+
+-- | dynamically specifies a single 'RunTime' parameter of function input
+-- apWithParam2 :: DefParam p1 m -> DefParam p2 m -> ((p1 m,p2 m) => m -> n) -> ((p1 m,p2 m) => m) -> n
+-- apWithParam2 p1 p2 f m = apWithParam p2 (apWithParam p1 f) m
+
+-- | dynamically specifies a single 'RunTime' parameter on the "inner" type of function input 
+apWithInnerParam :: forall p m n o. WithParam p m => DefParam p m -> (p m => n m -> o) -> (p m => n m) -> o
+apWithInnerParam = unsafeCoerce (apWithParam 
+    :: DefParam p m 
+    -> (p m => m -> o) 
+    -> (p m => m) 
+    -> o
+    )
 
 -------------------------------------------------------------------------------
 -- template haskell
@@ -256,11 +307,11 @@ mkParams dataName = do
          varL' 
     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
 
-    setParamClass <- liftM concat $ mapM (\(n,k,t) -> mkSetParamClass n $ return t) varL'
-    setParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkSetParamInstance n t dataName) varL' 
+    withParamClass <- liftM concat $ mapM (\(n,k,t) -> mkWithParamClass n $ return t) varL'
+    withParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkWithParamInstance n t dataName) varL' 
 
-    return $ paramClass++reifiableC++paramInsts++setParamClass++setParamInsts
---     return $ paramClass++reifiableC -- ++paramInsts -- ++setParamClass
+    return $ paramClass++reifiableC++paramInsts++withParamClass++withParamInsts
+--     return $ paramClass++reifiableC -- ++paramInsts -- ++withParamClass
 
 ---------------------------------------
 -- convert kinds into other objects
@@ -310,9 +361,9 @@ param2func p = mkName $ "param_" ++ nameBase p
 -- > instance (KnownNat paramName) => Param_paramName (Static paramName) where
 -- >     param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
 -- >
--- > instance SetParam Param_paramName (dataName) where
--- >     data DefParam Param_paramName (dataName ...) = SetParam_dataName_paramName (...)
--- >     setParam = (...)
+-- > instance WithParam Param_paramName (dataName) where
+-- >     data DefParam Param_paramName (dataName ...) = WithParam_dataName_paramName (...)
+-- >     withParam = (...)
 --
 mkParamInstance :: String -> Type -> Name -> Q [Dec]
 mkParamInstance paramStr paramType dataName  = do
@@ -364,7 +415,7 @@ mkParamInstance paramStr paramType dataName  = do
             []
             (AppT 
                 (AppT
-                    (ConT $ mkName "SetParam")
+                    (ConT $ mkName "WithParam")
                     (ConT (param2class paramName))
                 )
                 (tyVarL2Type tyVarL (PromotedT $ mkName "RunTime"))
@@ -374,12 +425,12 @@ mkParamInstance paramStr paramType dataName  = do
                 (mkName $ "DefParam")
                 [ ConT $ param2class paramName, tyVarL2Type tyVarL (PromotedT $ mkName "RunTime") ]
                 [ RecC 
-                    (mkName $ "SetParam_"++nameBase dataName++"_"++nameBase paramName)
-                    [(mkName $ "unSetParam_"++nameBase dataName++"_"++nameBase paramName,NotStrict,paramType)]
+                    (mkName $ "WithParam_"++nameBase dataName++"_"++nameBase paramName)
+                    [(mkName $ "unWithParam_"++nameBase dataName++"_"++nameBase paramName,NotStrict,paramType)]
                 ]
                 []
             , FunD
-                (mkName $ "setParam")
+                (mkName $ "withParam")
                 [ Clause
                     [VarP $ mkName "p", VarP $ mkName "a"]
                     (NormalB $
@@ -391,13 +442,39 @@ mkParamInstance paramStr paramType dataName  = do
                                     (LamE
                                         [VarP $ mkName"x"]
                                         (AppE
-                                            (VarE $ mkName $ "unSetParam_"++nameBase dataName++"_"++nameBase paramName)
+                                            (VarE $ mkName $ "unWithParam_"++nameBase dataName++"_"++nameBase paramName)
                                             (VarE $ mkName "p")
                                         )
                                     )
                                 )
                             )
                             (VarE $ mkName "a")
+                    )
+                    []
+                ]
+            , FunD
+                (mkName $ "apWithParam")
+                [ Clause
+                    [VarP $ mkName "p", VarP $ mkName "f", VarP $ mkName "a"]
+                    (NormalB $
+                        AppE
+                            (AppE
+                                (AppE 
+                                    (VarE $ mkName "using'")
+                                    (AppE
+                                        (ConE $ mkName $ "Def_Param_"++nameBase paramName)
+                                        (LamE
+                                            [VarP $ mkName"x"]
+                                            (AppE
+                                                (VarE $ mkName $ "unWithParam_"++nameBase dataName++"_"++nameBase paramName)
+                                                (VarE $ mkName "p")
+                                            )
+                                        )
+                                    )
+                                )
+                                (VarE $ mkName "a")
+                            )
+                            (VarE $ mkName "f")
                     )
                     []
                 ]
@@ -442,19 +519,19 @@ mkParamClass paramname qparamT = do
 
 -- | Creates classes of the form:
 --
--- > class SetParam_paramname m where
+-- > class WithParam_paramname m where
 -- >     paramname :: paramT -> DefParam Param_paramname m
 --
-mkSetParamClass :: String -> Q Type -> Q [Dec]
-mkSetParamClass paramname qparamT = do
+mkWithParamClass :: String -> Q Type -> Q [Dec]
+mkWithParamClass paramname qparamT = do
     paramT <- qparamT
-    isDef <- lookupTypeName $ "SetParam_"++paramname
+    isDef <- lookupTypeName $ "WithParam_"++paramname
     return $ case isDef of
         Just _ -> []
         Nothing ->
             [ ClassD
                 []
-                (mkName $ "SetParam_"++paramname)
+                (mkName $ "WithParam_"++paramname)
                 [PlainTV $ mkName "m"]
                 []
                 [SigD
@@ -477,17 +554,17 @@ mkSetParamClass paramname qparamT = do
 
 -- | Creates instances of the form:
 --
--- > instance SetParam_paramname dataname where
--- >     paramname = SetParam_dataName_paramname
+-- > instance WithParam_paramname dataname where
+-- >     paramname = WithParam_dataName_paramname
 --
-mkSetParamInstance :: String -> Type -> Name -> Q [Dec]
-mkSetParamInstance paramStr paramType dataName  = do
+mkWithParamInstance :: String -> Type -> Name -> Q [Dec]
+mkWithParamInstance paramStr paramType dataName  = do
     c <- TH.reify dataName
     let tyVarL = case c of
             TyConI (NewtypeD _ _ xs _ _) -> xs
             TyConI (DataD _ _ xs _ _ ) -> xs
             FamilyI (FamilyD _ _ xs _) _ -> xs
-            otherwise -> error $ "mkSetParamInstance patern match failed; c = "++show c
+            otherwise -> error $ "mkWithParamInstance patern match failed; c = "++show c
 
     let tyVarL' = filter filtergo tyVarL
         filtergo (KindedTV n k) = nameBase n==paramStr
@@ -499,14 +576,14 @@ mkSetParamInstance paramStr paramType dataName  = do
         [ InstanceD
             [ ]
             (AppT 
-                (ConT $ mkName $ "SetParam_"++nameBase paramName)
+                (ConT $ mkName $ "WithParam_"++nameBase paramName)
                 (tyVarL2Type tyVarL (PromotedT $ mkName "RunTime") )
             )
             [ FunD
                 ( mkName $ nameBase paramName )
                 [ Clause
                     [ ]
-                    (NormalB $ (ConE $ mkName $ "SetParam_"++nameBase dataName++"_"++nameBase paramName))
+                    (NormalB $ (ConE $ mkName $ "WithParam_"++nameBase dataName++"_"++nameBase paramName))
                     []
                 ]
             ]
@@ -666,32 +743,32 @@ instance KnownNat a => ParamA (ReflectionTest (Just a) b) where
 instance KnownNat b => ParamB (ReflectionTest a (Just b)) where
     paramB _ = fromIntegral $ natVal (Proxy :: Proxy b)
 
-class SetParamA m where
+class WithParamA m where
     a :: Int -> DefParam ParamA m
 
-instance SetParamA (ReflectionTest1 Nothing) where
+instance WithParamA (ReflectionTest1 Nothing) where
     a = DefParam_ParamA1 . ParamA
 
-instance SetParamA (ReflectionTest Nothing b) where
+instance WithParamA (ReflectionTest Nothing b) where
     a = DefParam_ParamA . ParamA
 
 a1 = DefParam_ParamA1 . ParamA
-instance SetParam ParamA (ReflectionTest1 Nothing) where
+instance WithParam ParamA (ReflectionTest1 Nothing) where
     data DefParam ParamA (ReflectionTest1 Nothing) = 
             DefParam_ParamA1 { unDefParam1 :: Def ParamA (ReflectionTest1 Nothing) }
-    setParam p a = using (unDefParam1 p) a
+    withParam p a = using (unDefParam1 p) a
 
 a2 = DefParam_ParamA . ParamA
-instance SetParam ParamA (ReflectionTest Nothing b) where
+instance WithParam ParamA (ReflectionTest Nothing b) where
     data DefParam ParamA (ReflectionTest Nothing b) = 
             DefParam_ParamA { unDefParam :: Def ParamA (ReflectionTest Nothing b) }
-    setParam p a = using (unDefParam p) a
+    withParam p a = using (unDefParam p) a
 
 b = DefParam_ParamB . ParamB
-instance SetParam ParamB (ReflectionTest a Nothing) where
+instance WithParam ParamB (ReflectionTest a Nothing) where
     data DefParam ParamB (ReflectionTest a Nothing) = 
             DefParam_ParamB { unDefParamB :: Def ParamB (ReflectionTest a Nothing ) }
-    setParam p a = using (unDefParamB p) a
+    withParam p a = using (unDefParamB p) a
 
 -------------------------------------------------------------------------------
 -- simple instances

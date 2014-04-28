@@ -53,12 +53,6 @@ data instance Vector (Static len) elem = Vector
 
 mkParams ''Vector
 
--- class SetParamInner n where
---     setParamInner :: SetParam p m => DefParam p m -> ((p m) => n m) -> n m
--- 
--- instance SetParamInner (Vector len)
---     setParamInner 
-
 instance NFData (Vector (Static len) elem) where
     rnf a = seq a ()
 
@@ -143,6 +137,9 @@ data instance Vector RunTime elem = Vector_RunTime
 
 instance NFData (Vector RunTime elem) where
     rnf a = seq a ()
+
+instance Prim elem => SetParam Param_len (Vector RunTime elem) (Vector Automatic elem) where
+    setParam p v = VG.fromList $ apWithParam p VG.toList v 
 
 instance 
     ( Prim elem 
