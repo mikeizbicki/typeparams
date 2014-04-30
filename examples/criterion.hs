@@ -86,6 +86,11 @@ main = do
     let vpuavpus2 = VG.fromList $ map VG.fromList dimLL2 
             :: VPU.Vector Automatic (VPU.Vector (Static Veclen) Float)
 
+    let vpuavpur1 = withInnerParam (VPU.len veclen) $ VG.fromList $ map VG.fromList dimLL1
+            :: VPU.Vector Automatic (VPU.Vector RunTime Float)
+    let vpuavpur2 = withInnerParam (VPU.len veclen) $ VG.fromList $ map VG.fromList dimLL2
+            :: VPU.Vector Automatic (VPU.Vector RunTime Float)
+
     let vpusvpus1 = VG.fromList $ map VG.fromList dimLL1 
             :: VPU.Vector (Static Numvec) (VPU.Vector (Static Veclen) Float)
     let vpusvpus2 = VG.fromList $ map VG.fromList dimLL2 
@@ -195,7 +200,7 @@ distance_Vector_diff4 !v1 !v2 = sqrt $ go 0 (VG.length v1-1)
 ---------------------------------------
 
 list2ByteArray xs = runST $ do
-    arr <- newAlignedPinnedByteArray (2^16) (veclen*4)
+    arr <- newAlignedPinnedByteArray (2^(16::Int)) (veclen*4)
     forM (zip [0..] xs) $ \(i,x) -> do
         writeByteArray arr i x
     unsafeFreezeByteArray arr

@@ -28,7 +28,9 @@ import GHC.Base (Int (..))
 import GHC.Int
 import GHC.Prim
 import GHC.TypeLits
+
 import Data.Params
+import Data.Params.Vector
 
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
@@ -50,7 +52,6 @@ instance (Ord elem, VG.Vector (Vector len) elem) => Ord (Vector len elem) where
 data instance Vector (Static len) elem = Vector 
     {-#UNPACK#-}!Int 
     {-#UNPACK#-}!ByteArray
-
 mkParams ''Vector
 
 instance NFData (Vector (Static len) elem) where
@@ -220,6 +221,9 @@ instance
 -- Automatic sized
 
 newtype instance Vector Automatic elem = Vector_Automatic (VP.Vector elem)
+
+instance Prim elem => Param_len (Vector Automatic elem) where
+    param_len v = VG.length v
 
 instance NFData elem => NFData (Vector Automatic elem) where
     rnf (Vector_Automatic v) = rnf v

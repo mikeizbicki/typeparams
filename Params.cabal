@@ -40,6 +40,7 @@ Library
     Exposed-modules:
         Data.Params
         Data.Params.Frac
+        Data.Params.Vector
         Data.Params.Vector.Storable
         Data.Params.Vector.Unboxed
         Data.Params.Vector.UnboxedRaw

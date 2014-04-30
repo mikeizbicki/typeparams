@@ -95,7 +95,7 @@ module Data.Params
     -- | These classes were shamelessly stollen from <https://www.fpcomplete.com/user/thoughtpolice/using-reflection this excellent reflection tutorial>.
     -- If you want to understand how this library works, that's the place to start.
     , ReifiableConstraint(..)
-    , WithParam (..)
+--     , WithParam (..)
     , ConstraintLift (..)
 
     -- ** Helper functions
@@ -299,10 +299,9 @@ mkParams dataName = do
         mapgo (KindedTV name (AppT _ k)) = 
             (nameBase name,k,kind2type k)
 
-
-    paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass n $ return t) varL' 
+    paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass n t) varL' 
     reifiableC <- liftM concat $ mapM (\(n,k,t) -> mkReifiableConstraint' 
-            (mkName $ "Param_"++ n) 
+            (mkName $ "Param_"++n) 
             [SigD (mkName $ "param_"++n) $ AppT (AppT ArrowT (VarT $ mkName "m")) t ])
          varL' 
     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
@@ -495,9 +494,8 @@ mkParamInstance paramStr paramType dataName  = do
 -- > class Param_paramname m where
 -- >     param_paramname :: m -> paramT
 --
-mkParamClass :: String -> Q Type -> Q [Dec]
-mkParamClass paramname qparamT = do
-    paramT <- qparamT
+mkParamClass :: String -> Type -> Q [Dec]
+mkParamClass paramname paramT = do
     isDef <- lookupTypeName $ "Param_"++paramname
     return $ case isDef of
         Just _ -> []
@@ -598,13 +596,14 @@ mkWithParamInstance paramStr paramType dataName  = do
                     else (VarT n)
 
 -- | helper for 'mkReifiableConstraints''
-mkReifiableConstraint :: Name -> Q [Dec]
-mkReifiableConstraint c = do
-    info <- TH.reify c
+mkReifiableConstraint :: String -> Q [Dec]
+mkReifiableConstraint paramStr = do
+    let name = mkName $ "Param_"++paramStr
+    info <- TH.reify name
     let funcL = case info of
             ClassI (ClassD _ _ _ _ xs) _ -> xs
             otherwise -> error "mkReifiableConstraint parameter must be a type class"
-    mkReifiableConstraint' c funcL
+    mkReifiableConstraint' name funcL
 
 -- | creates instances of the form
 --
@@ -612,10 +611,10 @@ mkReifiableConstraint c = do
 -- >     data Def (Def_Param_paramName) a = Param_paramName {}  
 --
 mkReifiableConstraint' :: Name -> [Dec] -> Q [Dec] 
-mkReifiableConstraint' c funcL = do 
-    isDef <- lookupTypeName $ nameBase c
+mkReifiableConstraint' c funcL = do
+    isDef <- lookupValueName $ "Def_"++nameBase c
     return $ case isDef of
-        Just _ -> []
+        Just x -> []
         Nothing -> 
             [ InstanceD 
                 []
