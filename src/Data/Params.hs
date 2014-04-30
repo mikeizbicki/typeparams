@@ -306,7 +306,7 @@ mkParams dataName = do
          varL' 
     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
 
-    withParamClass <- liftM concat $ mapM (\(n,k,t) -> mkWithParamClass n $ return t) varL'
+    withParamClass <- liftM concat $ mapM (\(n,k,t) -> mkWithParamClass n t) varL'
     withParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkWithParamInstance n t dataName) varL' 
 
     return $ paramClass++reifiableC++paramInsts++withParamClass++withParamInsts
@@ -520,9 +520,9 @@ mkParamClass paramname paramT = do
 -- > class WithParam_paramname m where
 -- >     paramname :: paramT -> DefParam Param_paramname m
 --
-mkWithParamClass :: String -> Q Type -> Q [Dec]
-mkWithParamClass paramname qparamT = do
-    paramT <- qparamT
+mkWithParamClass :: String -> Type -> Q [Dec]
+mkWithParamClass paramname paramT = do
+--     paramT <- qparamT
     isDef <- lookupTypeName $ "WithParam_"++paramname
     return $ case isDef of
         Just _ -> []
