@@ -62,15 +62,15 @@ module Data.Params
     , mkParams
 
     , withParam
-    , withParam2
-    , withParam3
+--     , withParam2
+--     , withParam3
 
     , withInnerParam
-    , withInnerParam2
-    , withInnerParam3
+--     , withInnerParam2
+--     , withInnerParam3
 
     , apWithParam
-    , apWithInnerParam
+--     , apWithInnerParam
 
     -- ** Classes
     , SetParam (..)
@@ -209,27 +209,31 @@ class SetParam p m1 m2 | p m1 -> m2, p m2 -> m1 where
 
 class WithParam p m where
     data DefParam p m :: *
+
+    type ParamConstraint p m :: Constraint
+    type ParamConstraint p m = p m
     
     -- | dynamically specifies a single 'RunTime' parameter of function output
-    withParam :: DefParam p m -> (p m => m) -> m
+    withParam :: DefParam p m -> (ParamConstraint p m => m) -> m
 
     -- | dynamically specifies a single 'RunTime' parameter of function input
-    apWithParam :: DefParam p m -> (p m => m -> n) -> (p m => m) -> n
+    apWithParam :: DefParam p m -> (ParamConstraint p m => m -> n) -> (p m => m) -> n
 
--- | dynamically specifies two 'RunTime' parameters of function output
-withParam2 :: (WithParam p1 m, WithParam p2 m) => 
-    DefParam p1 m -> DefParam p2 m -> ((p1 m, p2 m) => m) -> m
-withParam2 p1 p2 f = withParam p1 $ withParam p2 $ f
-
--- | dynamically specifies three 'RunTime' parameters of function output
-withParam3 :: (WithParam p1 m, WithParam p2 m, WithParam p3 m) =>
-    DefParam p1 m -> DefParam p2 m -> DefParam p3 m -> ((p1 m, p2 m, p3 m) => m) -> m
-withParam3 p1 p2 p3 f = withParam p1 $ withParam p2 $ withParam p3 $ f
+-- -- | dynamically specifies two 'RunTime' parameters of function output
+-- withParam2 :: (WithParam p1 m, WithParam p2 m) => 
+--     DefParam p1 m -> DefParam p2 m -> ((ParamConstraint p1 m, ParamConstraint p2 m) => m) -> m
+-- withParam2 p1 p2 f = withParam p1 $ withParam p2 $ f
+-- 
+-- -- | dynamically specifies three 'RunTime' parameters of function output
+-- withParam3 :: (WithParam p1 m, WithParam p2 m, WithParam p3 m) =>
+--     DefParam p1 m -> DefParam p2 m -> DefParam p3 m -> ((ParamConstraint p1 m, ParamConstraint p2 m, ParamConstraint p3 m) => m) -> m
+-- withParam3 p1 p2 p3 f = withParam p1 $ withParam p2 $ withParam p3 $ f
 
 -- | dynamically specifies a single 'RunTime' parameter on the "inner" type of function output
-withInnerParam :: forall p m n. WithParam p m => DefParam p m -> (p m => n m) -> n m
-withInnerParam = unsafeCoerce (withParam :: DefParam p m -> (p m => m) -> m)
+withInnerParam :: forall p m n. WithParam p m => DefParam p m -> (ParamConstraint p m => n m) -> n m
+withInnerParam = unsafeCoerce (withParam :: DefParam p m -> (ParamConstraint p m => m) -> m)
 
+{-
 -- | dynamically specifies two 'RunTime' parameters on the "inner" type of function output
 withInnerParam2 :: forall p1 p2 m n. 
     ( WithParam p1 m
@@ -262,19 +266,25 @@ withInnerParam3 = unsafeCoerce (withParam3
     -> ((p1 m,p2 m,p3 m) => m) 
     -> m
     )
+-}
 
 -- | dynamically specifies a single 'RunTime' parameter of function input
 -- apWithParam2 :: DefParam p1 m -> DefParam p2 m -> ((p1 m,p2 m) => m -> n) -> ((p1 m,p2 m) => m) -> n
 -- apWithParam2 p1 p2 f m = apWithParam p2 (apWithParam p1 f) m
 
 -- | dynamically specifies a single 'RunTime' parameter on the "inner" type of function input 
-apWithInnerParam :: forall p m n o. WithParam p m => DefParam p m -> (p m => n m -> o) -> (p m => n m) -> o
-apWithInnerParam = unsafeCoerce (apWithParam 
-    :: DefParam p m 
-    -> (p m => m -> o) 
-    -> (p m => m) 
-    -> o
-    )
+-- apWithInnerParam :: forall p m n o. 
+--     ( WithParam p m 
+--     ) => DefParam p m 
+--       -> (ParamConstraint p m => n m -> o) 
+--       -> (ParamConstraint p m => n m) 
+--       -> o
+-- apWithInnerParam = unsafeCoerce (apWithParam 
+--     :: DefParam p m 
+--     -> (ParamConstraint p m => m -> o) 
+--     -> (ParamConstraint p m => m) 
+--     -> o
+--     )
 
 -------------------------------------------------------------------------------
 -- template haskell

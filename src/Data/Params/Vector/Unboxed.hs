@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE OverlappingInstances #-}
+-- {-# LANGUAGE OverlappingInstances #-}
 module Data.Params.Vector.Unboxed
     where
 
@@ -31,6 +31,7 @@ import GHC.TypeLits
 
 import Data.Params
 import Data.Params.Vector
+import Unsafe.Coerce
 
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
@@ -53,6 +54,166 @@ data instance Vector (Static len) elem = Vector
     {-#UNPACK#-}!Int 
     {-#UNPACK#-}!ByteArray
 mkParams ''Vector
+
+u = VG.singleton $ VG.fromList [1..10] :: Vector (Static 1) (Vector (Static 10) Int)
+u' = withInnerParam (len 10) $ VG.singleton $ VG.fromList [1..10] :: Vector (Static 1) (Vector RunTime Int)
+-- u'' = withParam (Def_Meta_elem (len 10)) (VG.singleton (VG.fromList [1..10]) :: Vector (Static 1) (Vector RunTime Int))
+
+class Meta_elem (p :: * -> Constraint) e v {-| v -> e-} where
+    meta_elem :: (e -> a) -> v -> a
+
+instance Meta_elem Param_len elem (Vector len elem) where
+    meta_elem p _ = p (undefined::elem)
+
+class Meta_a (p :: * -> Constraint) e v | v -> e where
+    meta_a :: (e -> a) -> v -> a
+
+class Meta_b (p :: * -> Constraint) e v | v -> e where
+    meta_b :: (e -> a) -> v -> a
+
+instance Meta_a Param_len a (Either a b) where
+    meta_a p _ = p (undefined::elem)
+
+instance Meta_b Param_len b (Either a b) where
+    meta_b p _ = p (undefined::elem)
+
+-- class WithMeta_elem m where
+--     elem :: (WithParam param elem) => DefParam param elem -> DefParam (Meta_elem p) m
+-- 
+-- instance WithMeta_elem (Vector len elem) where
+--     elem = Def_Meta_elem
+
+-- class Meta_elem2 p m
+
+-- instance Meta_elem p (Vector len elem) => WithParam (Meta_elem p) (Vector len elem) where
+instance 
+    ( WithParam param elem
+    , Meta_elem param elem (Vector len elem)
+    ) => WithParam (Meta_elem param elem) (Vector len elem) 
+        where
+    data DefParam (Meta_elem param elem) (Vector len elem) = 
+        Def_Meta_elem
+        { unDef_Meta_elem :: DefParam param elem
+        }
+
+--     withParam (Def_Meta_elem p) a = withParam p a
+    withParam (Def_Meta_elem p) a = withInnerParam p a
+--     apWithParam (Def_Meta_elem p) f a = apWithInnerParam p f a
+
+instance
+    ( WithParam param b
+    , Meta_b param b (Either a b)
+    ) => WithParam (Meta_b param b) (Either a b) 
+        where
+    data DefParam (Meta_b param b) (Either a b) = Def_Meta_b
+        { unDef_Meta_b :: DefParam param b
+        }
+    type ParamConstraint (Meta_b param b) (Either a b) = ParamConstraint param b
+    withParam (Def_Meta_b p) x = withInnerParam p x
+    apWithParam (Def_Meta_b p) x = apWithParam (unsafeCoerce p) (unsafeCoerce x)
+
+
+class WithParam2 p1 p2 m1 m2 where
+    data DefParam2 p1 p2 m1 m2 :: *
+
+    -- | dynamically specifies a single 'RunTime' parameter of function output
+    withParam2 :: DefParam2 p1 p2 m1 m2 -> (p2 m2 => m1) -> m1
+
+    apWithParam2 :: DefParam2 p1 p2 m1 m2 -> (p2 m2 => m1 -> n) -> (p2 m2 => m1) -> n
+
+class WithParam2_len m elem | m -> elem where
+    len2 :: Int -> DefParam2 Param_len Param_len m m
+
+instance WithParam2_len (Vector RunTime elem) (Vector RunTime elem) where
+    len2 = DefParam2_Vector_len . len
+
+class WithParam2_elem m elem | m -> elem where
+    elem2 :: WithParam2 p1 p2 elem m2 
+         => DefParam2 p1 p2 elem m2 
+         -> DefParam2 (Meta_elem p1 m) p2 m m2 
+
+instance WithParam2_elem (Vector len elem) elem where
+    elem2 = DefParam2_Vector_elem
+
+-- instance WithParam2 Param_len Param_len (Vector RunTime elem) (Vector RunTime elem) where
+--     data DefParam2 Param_len Param_len (Vector RunTime elem) (Vector RunTime elem) =
+instance WithParam2 Param_len Param_len (Vector RunTime elem) m2 where
+    data DefParam2 Param_len Param_len (Vector RunTime elem) m2 =
+        DefParam2_Vector_len
+        { unDefParam2_Vector_len :: DefParam Param_len (Vector RunTime elem)
+        }
+    withParam2 (DefParam2_Vector_len p) = unsafeCoerce $ withParam p
+    apWithParam2 (DefParam2_Vector_len p) = unsafeCoerce $ apWithParam p 
+
+instance 
+    ( WithParam2 p1 p2 elem m2
+    ) => WithParam2 (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2
+        where
+    data DefParam2 (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 =
+        DefParam2_Vector_elem
+        { unDefParam2_Vector_elem :: DefParam2 p1 p2 elem m2
+        }
+    withParam2 (DefParam2_Vector_elem p) = unsafeCoerce $ withParam2 p
+    apWithParam2 (DefParam2_Vector_elem p) = unsafeCoerce $ apWithParam2 p
+
+instance
+    ( WithParam2 p1 p2 b c
+    ) => WithParam2 (Meta_b p1 (Either a b)) p2 (Either a b) c 
+        where
+    data DefParam2 (Meta_b p1 (Either a b)) p2 (Either a b) c =
+        DefParam2_Either_b
+        { unDefParam2_Either_b :: DefParam2 p1 p2 b c
+        }
+    withParam2 (DefParam2_Either_b p) = unsafeCoerce $ withParam2 p
+    apWithParam2 (DefParam2_Either_b p) = unsafeCoerce $ apWithParam2 p
+
+instance
+    ( WithParam2 p1 p2 a c
+    ) => WithParam2 (Meta_a p1 (Either a b)) p2 (Either a b) c 
+        where
+    data DefParam2 (Meta_a p1 (Either a b)) p2 (Either a b) c =
+        DefParam2_Either_a
+        { unDefParam2_Either_a :: DefParam2 p1 p2 a c
+        }
+    withParam2 (DefParam2_Either_a p) = unsafeCoerce $ withParam2 p
+    apWithParam2 (DefParam2_Either_a p) = unsafeCoerce $ apWithParam2 p
+
+-- withInnerParam2 :: forall p m n. 
+--     ( WithParam2 p1 p2 m1 m2 
+--     ) => DefParam2 p1 p2 m1 m2 
+--       -> (=> n m) -> n m
+-- withInnerParam2 = unsafeCoerce (withParam :: DefParam p m -> (ParamConstraint p m => m) -> m)
+
+--     -- | dynamically specifies a single 'RunTime' parameter of function input
+--     apWithParam2 :: DefParam p m -> (ParamConstraint p m => m -> n) -> (p m => m) -> n
+
+-- instance
+--     ( WithParam Param_len (Vector RunTime elem)
+--     , Meta_b Param_len (Vector RunTime elem) (Either a (Vector RunTime elem))
+--     ) => WithParam (Meta_b Param_len (Vector RunTime elem)) (Either a (Vector RunTime elem)) 
+--         where
+--     data DefParam (Meta_b Param_len (Vector RunTime elem)) (Either a (Vector RunTime elem)) = Def_Meta_b
+--         { unDef_Meta_b :: DefParam Param_len (Vector RunTime elem)
+--         }
+--     type ParamConstraint (Meta_b Param_len (Vector RunTime elem)) (Either a (Vector RunTime elem)) = Param_len (Vector RunTime elem)
+
+-- instance 
+--     ( SetParam param elem1 elem2
+--     ) => SetParam (Meta_elem param elem1) (Vector len elem1) (Vector len elem2)
+--         where
+--     
+--     setParam 
+
+poop :: (Param_len (Vector RunTime Int) => Vector (Static 1) (Vector RunTime Int)) -> (Vector (Static 1) (Vector RunTime Int))
+poop = undefined
+
+rightVec :: 
+    ( Meta_b Param_len (Vector RunTime Int) (Either a (Vector RunTime Int))
+    ) => (Param_len (Vector RunTime Int) => Either a (Vector RunTime Int)) 
+      -> (Either a (Vector RunTime Int))
+rightVec = undefined
+
+-------------------
 
 instance NFData (Vector (Static len) elem) where
     rnf a = seq a ()
