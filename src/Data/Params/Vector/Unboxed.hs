@@ -55,14 +55,33 @@ data instance Vector (Static len) elem = Vector
     {-#UNPACK#-}!ByteArray
 mkParams ''Vector
 
-u = VG.singleton $ VG.fromList [1..10] :: Vector (Static 1) (Vector (Static 10) Int)
-u' = withInnerParam (len 10) $ VG.singleton $ VG.fromList [1..10] :: Vector (Static 1) (Vector RunTime Int)
--- u'' = withParam (Def_Meta_elem (len 10)) (VG.singleton (VG.fromList [1..10]) :: Vector (Static 1) (Vector RunTime Int))
+u :: Vector (Static 1) (Vector (Static 10) Int)
+u = VG.singleton $ VG.fromList [1..10] 
 
-class Meta_elem (p :: * -> Constraint) e v {-| v -> e-} where
+u' :: Vector (Static 1) (Vector RunTime Int)
+u' = withParam2 (elem2.len2 $ 10) $ VG.singleton $ VG.fromList [1..10] 
+
+u'' :: Vector (Static 1) (Vector RunTime Int)
+u'' = withParam3' (elem2.len2) 10 $ VG.singleton $ VG.fromList [1..10] 
+
+v' = withParam3 (len2 10) $ VG.fromList [1..10] :: Vector RunTime Int
+-- v'' = withParam4 len3 10 $ VG.fromList [1..10] :: Vector RunTime Int
+
+w :: Vector RunTime (Vector (Static 10) Int)
+w = withParam3 (len2 1) $ VG.singleton $ VG.fromList [1..10] 
+
+w' :: Vector RunTime (Vector RunTime Int)
+w' = withParam3' len2 1 
+   $ withParam3' (elem2.len2) 10 
+   $ VG.singleton $ VG.fromList [1..10] 
+
+-- u'' :: Vector (Static 1) (Vector Automatic Int)
+-- u'' = VG.singleton $ VG.fromList [1..10]
+
+class Meta_elem (p :: * -> Constraint) e v | v -> e where
     meta_elem :: (e -> a) -> v -> a
 
-instance Meta_elem Param_len elem (Vector len elem) where
+instance Meta_elem p elem (Vector len elem) where
     meta_elem p _ = p (undefined::elem)
 
 class Meta_a (p :: * -> Constraint) e v | v -> e where
@@ -77,141 +96,212 @@ instance Meta_a Param_len a (Either a b) where
 instance Meta_b Param_len b (Either a b) where
     meta_b p _ = p (undefined::elem)
 
--- class WithMeta_elem m where
---     elem :: (WithParam param elem) => DefParam param elem -> DefParam (Meta_elem p) m
--- 
--- instance WithMeta_elem (Vector len elem) where
---     elem = Def_Meta_elem
+-------------------
 
--- class Meta_elem2 p m
+class ValidParam param datatype where
+    viewParam :: ValidParamIndex param -> datatype -> ParamType param
 
--- instance Meta_elem p (Vector len elem) => WithParam (Meta_elem p) (Vector len elem) where
+type family ParamType (p::k) :: *
+type instance ParamType ParamIndex_len = Int
+type instance ParamType (ParamIndex_elem p) = ParamType p
+type instance ParamType Param_len = Int
+
+type ValidParamIndex param = ParamType param -> param
+type family Index2Param p :: * -> Constraint
+type instance Index2Param ParamIndex_len = Param_len
+type instance Index2Param (ParamIndex_elem p) = Param_elem (Index2Param p)
+
+type family ParamApply p  :: *
+type instance ParamApply ParamIndex_len = Vector RunTime Int
+
+data ParamIndex_len = ParamIndex_len Int
+len3 = ParamIndex_len
+
+instance KnownNat n => ValidParam ParamIndex_len (Vector (Static n) elem) where
+    viewParam _ _ = fromIntegral $ natVal (Proxy::Proxy n)
+
+data ParamIndex_elem p = ParamIndex_elem p
+elem3 = ParamIndex_elem
+class Param_elem (p :: * -> Constraint) m
+instance p elem => Param_elem p (Vector len elem)
+
+instance ReifiableConstraint p => ReifiableConstraint (Param_elem p) 
+
+instance ValidParam p elem => ValidParam (ParamIndex_elem p) (Vector len elem) where
+    viewParam _ _ = viewParam (undefined::ParamType p -> p) (undefined::elem)
+
+withParam4 :: 
+    ( ReifiableConstraint (Index2Param p) 
+    ) => ValidParamIndex p -> ParamType p -> (Index2Param p (ParamApply p) => b) -> b
+withParam4 pi pt = using' (unsafeCoerce (pi pt))
+
+apWithParam4 :: 
+    ( ReifiableConstraint (Index2Param p) 
+    ) => ValidParamIndex p -> ParamType p -> (Index2Param p a => b -> c) -> (Index2Param p a => b) -> c
+apWithParam4 pi pt = flip $ apUsing' (unsafeCoerce (pi pt))
+
+-- withParam3 p = using' (reifiableConstraint p (\x -> getParamDict p))
+
+-- class WithParam4 p where
+--     withParam4 :: Def p a -> ((p a) => b) -> b
+
+-- instance WithParam4 ParamIndex_len where
+--     withParam4 = unsafeCoerce using
+
+---------
+
+data family ParamDict (p1::k1) (p2::k2) m1 m2
+
+class ValidDictionary (p1::k1) (p2:: * -> Constraint) m1 m2 where
+    getParamDict :: ParamDict p1 p2 m1 m2 -> ParamType p2
+    reifiableConstraint :: ParamDict p1 p2 m1 m2 -> (a -> ParamType p2) -> Def p2 a
+
+-- viewParam3 ::
+--     (
+--     ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m1 -> ParamType p2
+-- viewParam3 = undefined
+
+withParam3 :: 
+    ( ValidDictionary p1 p2 m1 m2 
+    , ReifiableConstraint p2
+    ) => ParamDict p1 p2 m1 m2 -> (p2 m2 => m1) -> m1
+withParam3 p = using' (reifiableConstraint p (\x -> getParamDict p))
+
+withParam3' :: 
+--     ( ValidDictionary p1 p2 m1 m2 
+    ( ReifiableConstraint p2
+    ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) -> ParamType p2 -> (p2 m2 => m1) -> m1
+-- withParam3' p pt = using' (reifiableConstraint (p pt) (\x -> getParamDict (p pt)))
+withParam3' pi pt = using' (unsafeCoerce FIXME (\x -> unsafeCoerce (pi pt)))
+
+apWithParam3 ::
+    ( ValidDictionary p1 p2 m1 m2 
+    , ReifiableConstraint p2
+    ) => ParamDict p1 p2 m1 m2 -> (p2 m2 => m1 -> n) -> (p2 m2 => m1) -> n
+apWithParam3 p = flip $ apUsing' (reifiableConstraint p (\x -> getParamDict p))
+
+data FIXME a = FIXME a
+apWithParam3' ::
+--     ( ValidDictionary p1 p2 m1 m2 
+    ( ReifiableConstraint p2
+    ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) 
+      -> ParamType p2 
+      -> (p2 m2 => m1 -> n) 
+      -> (p2 m2 => m1) 
+      -> n
+apWithParam3' p pt = flip $ apUsing' ( unsafeCoerce FIXME (\x -> unsafeCoerce (p pt)))
+-- apWithParam3' pi pt = flip $ apUsing' (unsafeCoerce (\a -> pi pt))
+
+apWith2Param ::
+    ( ReifiableConstraint p2
+    , ReifiableConstraint p3
+    ) => (ParamDict p1 p2 m1 m2)
+      -> (ParamDict p3 p4 m1 m3)
+      -> ((p2 m2,p4 m3) => m1 -> n)
+      -> ((p2 m2,p4 m3) => m1)
+      -> n
+apWith2Param = undefined
+
+class ViewParam p1 p2 m1 m2 where
+    viewParam3 :: (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m2 -> ParamType p2
+
+instance Param_len m2 => ViewParam Param_len Param_len (Vector len elem) m2 where
+-- instance Param_len (Vector len elem) => ViewParam Param_len Param_len (Vector len elem) (Vector len elem) where
+    viewParam3 _ = param_len
+
 instance 
-    ( WithParam param elem
-    , Meta_elem param elem (Vector len elem)
-    ) => WithParam (Meta_elem param elem) (Vector len elem) 
+    ( ViewParam p1 p2 elem m2
+    ) => ViewParam (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
         where
-    data DefParam (Meta_elem param elem) (Vector len elem) = 
-        Def_Meta_elem
-        { unDef_Meta_elem :: DefParam param elem
-        }
+    viewParam3 _ = viewParam3 (undefined :: ParamType p2 -> ParamDict p1 p2 elem m2)
+     
+-- instance 
+--     ( ValidDictionary p1 p2 (Vector len elem) m2
+--     ) => ValidDictionary (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
+--         where
 
---     withParam (Def_Meta_elem p) a = withParam p a
-    withParam (Def_Meta_elem p) a = withInnerParam p a
---     apWithParam (Def_Meta_elem p) f a = apWithInnerParam p f a
+-- len
 
-instance
-    ( WithParam param b
-    , Meta_b param b (Either a b)
-    ) => WithParam (Meta_b param b) (Either a b) 
+class BuildParamDict_len m elem | m -> elem where
+    len2 :: Int -> ParamDict Param_len Param_len m m
+
+instance BuildParamDict_len (Vector len elem) (Vector len elem) where
+    len2 = ParamDict_Vector_len
+
+instance ValidDictionary Param_len Param_len (Vector RunTime elem) m2 where
+    getParamDict = getParamDict_Vector_len
+    reifiableConstraint p = Def_Param_len
+
+-- newtype instance ParamDict Param_len Param_len (Vector RunTime elem) m2 =
+newtype instance ParamDict Param_len Param_len (Vector len elem) m2 =
+    ParamDict_Vector_len { getParamDict_Vector_len :: Int }
+
+-- elem
+
+class BuildParamDict_elem m elem | m -> elem where
+    elem2 :: ()--WithParam2 p1 p2 elem m2 
+         => ParamDict p1 p2 elem m2 
+         -> ParamDict (Meta_elem p1 m) p2 m m2 
+
+instance BuildParamDict_elem (Vector len elem) elem where
+    elem2 = ParamDict_Vector_elem
+
+instance 
+    ( ValidDictionary p1 p1 elem elem
+    ) => ValidDictionary p1 p1 (Vector len elem) elem
         where
-    data DefParam (Meta_b param b) (Either a b) = Def_Meta_b
-        { unDef_Meta_b :: DefParam param b
-        }
-    type ParamConstraint (Meta_b param b) (Either a b) = ParamConstraint param b
-    withParam (Def_Meta_b p) x = withInnerParam p x
-    apWithParam (Def_Meta_b p) x = apWithParam (unsafeCoerce p) (unsafeCoerce x)
+    getParamDict = unsafeCoerce (getParamDict :: ParamDict p1 p1 elem elem -> ParamType p1)
+    reifiableConstraint = unsafeCoerce (reifiableConstraint :: ParamDict p1 p1 elem elem -> (a -> ParamType p1) -> Def p1 a) 
 
+instance 
+    ( ValidDictionary p1 p2 (Vector len elem) m2
+    ) => ValidDictionary (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
+        where
+    getParamDict = unsafeCoerce getParamDict_Vector_elem
+    reifiableConstraint = unsafeCoerce (reifiableConstraint :: ParamDict p1 p2 (Vector len elem) m2 -> (a -> ParamType p2) -> Def p2 a)
+
+newtype instance ParamDict (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 =
+    ParamDict_Vector_elem { getParamDict_Vector_elem :: ParamDict p1 p2 elem m2 }
+
+-- Either 
+
+newtype instance ParamDict (Meta_b p1 (Either a b)) p2 (Either a b) c =
+    ParamDict_Either_b { getParamDict_Either_b :: ParamDict p1 p2 b c }
+
+newtype instance ParamDict (Meta_a p1 (Either a b)) p2 (Either a b) c =
+    ParamDict_Either_a { getParamDict_Either_a :: ParamDict p1 p2 a c }
+
+-------------------
+-- param2
 
 class WithParam2 p1 p2 m1 m2 where
-    data DefParam2 p1 p2 m1 m2 :: *
+    withParam2 :: ParamDict p1 p2 m1 m2 -> (p2 m2 => m1) -> m1
+    apWithParam2 :: ParamDict p1 p2 m1 m2 -> (p2 m2 => m1 -> n) -> (p2 m2 => m1) -> n
 
-    -- | dynamically specifies a single 'RunTime' parameter of function output
-    withParam2 :: DefParam2 p1 p2 m1 m2 -> (p2 m2 => m1) -> m1
-
-    apWithParam2 :: DefParam2 p1 p2 m1 m2 -> (p2 m2 => m1 -> n) -> (p2 m2 => m1) -> n
-
-class WithParam2_len m elem | m -> elem where
-    len2 :: Int -> DefParam2 Param_len Param_len m m
-
-instance WithParam2_len (Vector RunTime elem) (Vector RunTime elem) where
-    len2 = DefParam2_Vector_len . len
-
-class WithParam2_elem m elem | m -> elem where
-    elem2 :: WithParam2 p1 p2 elem m2 
-         => DefParam2 p1 p2 elem m2 
-         -> DefParam2 (Meta_elem p1 m) p2 m m2 
-
-instance WithParam2_elem (Vector len elem) elem where
-    elem2 = DefParam2_Vector_elem
-
--- instance WithParam2 Param_len Param_len (Vector RunTime elem) (Vector RunTime elem) where
---     data DefParam2 Param_len Param_len (Vector RunTime elem) (Vector RunTime elem) =
 instance WithParam2 Param_len Param_len (Vector RunTime elem) m2 where
-    data DefParam2 Param_len Param_len (Vector RunTime elem) m2 =
-        DefParam2_Vector_len
-        { unDefParam2_Vector_len :: DefParam Param_len (Vector RunTime elem)
-        }
-    withParam2 (DefParam2_Vector_len p) = unsafeCoerce $ withParam p
-    apWithParam2 (DefParam2_Vector_len p) = unsafeCoerce $ apWithParam p 
+    withParam2 p = using' (Def_Param_len (\x -> getParamDict_Vector_len p)) 
+    apWithParam2 p = flip (apUsing' (Def_Param_len (\x -> getParamDict_Vector_len p)))
 
 instance 
     ( WithParam2 p1 p2 elem m2
     ) => WithParam2 (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2
         where
-    data DefParam2 (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 =
-        DefParam2_Vector_elem
-        { unDefParam2_Vector_elem :: DefParam2 p1 p2 elem m2
-        }
-    withParam2 (DefParam2_Vector_elem p) = unsafeCoerce $ withParam2 p
-    apWithParam2 (DefParam2_Vector_elem p) = unsafeCoerce $ apWithParam2 p
+    withParam2 (ParamDict_Vector_elem p) = unsafeCoerce $ withParam2 p
+    apWithParam2 (ParamDict_Vector_elem p) = unsafeCoerce $ apWithParam2 p
 
 instance
     ( WithParam2 p1 p2 b c
     ) => WithParam2 (Meta_b p1 (Either a b)) p2 (Either a b) c 
         where
-    data DefParam2 (Meta_b p1 (Either a b)) p2 (Either a b) c =
-        DefParam2_Either_b
-        { unDefParam2_Either_b :: DefParam2 p1 p2 b c
-        }
-    withParam2 (DefParam2_Either_b p) = unsafeCoerce $ withParam2 p
-    apWithParam2 (DefParam2_Either_b p) = unsafeCoerce $ apWithParam2 p
+    withParam2 (ParamDict_Either_b p) = unsafeCoerce $ withParam2 p
+    apWithParam2 (ParamDict_Either_b p) = unsafeCoerce $ apWithParam2 p
 
 instance
     ( WithParam2 p1 p2 a c
     ) => WithParam2 (Meta_a p1 (Either a b)) p2 (Either a b) c 
         where
-    data DefParam2 (Meta_a p1 (Either a b)) p2 (Either a b) c =
-        DefParam2_Either_a
-        { unDefParam2_Either_a :: DefParam2 p1 p2 a c
-        }
-    withParam2 (DefParam2_Either_a p) = unsafeCoerce $ withParam2 p
-    apWithParam2 (DefParam2_Either_a p) = unsafeCoerce $ apWithParam2 p
-
--- withInnerParam2 :: forall p m n. 
---     ( WithParam2 p1 p2 m1 m2 
---     ) => DefParam2 p1 p2 m1 m2 
---       -> (=> n m) -> n m
--- withInnerParam2 = unsafeCoerce (withParam :: DefParam p m -> (ParamConstraint p m => m) -> m)
-
---     -- | dynamically specifies a single 'RunTime' parameter of function input
---     apWithParam2 :: DefParam p m -> (ParamConstraint p m => m -> n) -> (p m => m) -> n
-
--- instance
---     ( WithParam Param_len (Vector RunTime elem)
---     , Meta_b Param_len (Vector RunTime elem) (Either a (Vector RunTime elem))
---     ) => WithParam (Meta_b Param_len (Vector RunTime elem)) (Either a (Vector RunTime elem)) 
---         where
---     data DefParam (Meta_b Param_len (Vector RunTime elem)) (Either a (Vector RunTime elem)) = Def_Meta_b
---         { unDef_Meta_b :: DefParam Param_len (Vector RunTime elem)
---         }
---     type ParamConstraint (Meta_b Param_len (Vector RunTime elem)) (Either a (Vector RunTime elem)) = Param_len (Vector RunTime elem)
-
--- instance 
---     ( SetParam param elem1 elem2
---     ) => SetParam (Meta_elem param elem1) (Vector len elem1) (Vector len elem2)
---         where
---     
---     setParam 
-
-poop :: (Param_len (Vector RunTime Int) => Vector (Static 1) (Vector RunTime Int)) -> (Vector (Static 1) (Vector RunTime Int))
-poop = undefined
-
-rightVec :: 
-    ( Meta_b Param_len (Vector RunTime Int) (Either a (Vector RunTime Int))
-    ) => (Param_len (Vector RunTime Int) => Either a (Vector RunTime Int)) 
-      -> (Either a (Vector RunTime Int))
-rightVec = undefined
+    withParam2 (ParamDict_Either_a p) = unsafeCoerce $ withParam2 p
+    apWithParam2 (ParamDict_Either_a p) = unsafeCoerce $ apWithParam2 p
 
 -------------------
 

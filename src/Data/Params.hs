@@ -101,6 +101,8 @@ module Data.Params
     -- ** Helper functions
     , using
     , using'
+    , apUsing
+    , apUsing'
     , intparam 
 
     -- * Modules
@@ -187,19 +189,25 @@ using d m = reify d $ \(_ :: Proxy s) ->
             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
     in m \\ replaceProof
 
-using' :: forall p a b. ReifiableConstraint p => Def p a -> (p a => a) -> (p a => a -> b) -> b
-using' d m f = reify d $ \(_ :: Proxy s) ->
+using' :: forall p a b. ReifiableConstraint p => Def p b -> (p b => a) -> a
+using' def = unsafeCoerce (using def)
+
+apUsing :: forall p a b. ReifiableConstraint p => Def p a -> (p a => a) -> (p a => a -> b) -> b
+apUsing d m f = reify d $ \(_ :: Proxy s) ->
     let replaceProof :: Reifies s (Def p a) :- p a
         replaceProof = trans proof reifiedIns
             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
     in (f m) \\ replaceProof
 
-usingInner :: forall p b a. ReifiableConstraint p => Def p a -> (p a => b a) -> b a
-usingInner d m = reify d $ \(_ :: Proxy s) ->
-    let replaceProof :: Reifies s (Def p a) :- p a
-        replaceProof = trans proof reifiedIns
-            where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
-    in m \\ replaceProof
+apUsing' :: forall p a1 a2 b. ReifiableConstraint p => Def p a2 -> (p a2 => a1) -> (p a2 => a1 -> b) -> b
+apUsing' def = unsafeCoerce $ apUsing def
+
+-- usingInner :: forall p b a. ReifiableConstraint p => Def p a -> (p a => b a) -> b a
+-- usingInner d m = reify d $ \(_ :: Proxy s) ->
+--     let replaceProof :: Reifies s (Def p a) :- p a
+--         replaceProof = trans proof reifiedIns
+--             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
+--     in m \\ replaceProof
     
 -------------------
 -- for external use
@@ -469,7 +477,7 @@ mkParamInstance paramStr paramType dataName  = do
                         AppE
                             (AppE
                                 (AppE 
-                                    (VarE $ mkName "using'")
+                                    (VarE $ mkName "apUsing")
                                     (AppE
                                         (ConE $ mkName $ "Def_Param_"++nameBase paramName)
                                         (LamE
