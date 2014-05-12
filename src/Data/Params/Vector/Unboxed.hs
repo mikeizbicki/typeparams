@@ -59,20 +59,20 @@ u :: Vector (Static 1) (Vector (Static 10) Int)
 u = VG.singleton $ VG.fromList [1..10] 
 
 u' :: Vector (Static 1) (Vector RunTime Int)
-u' = withParam2 (elem2.len2 $ 10) $ VG.singleton $ VG.fromList [1..10] 
+u' = withParam2 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
 
 u'' :: Vector (Static 1) (Vector RunTime Int)
-u'' = withParam3' (elem2.len2) 10 $ VG.singleton $ VG.fromList [1..10] 
+u'' = withParam3' (_elem._len) 10 $ VG.singleton $ VG.fromList [1..10] 
 
-v' = withParam3 (len2 10) $ VG.fromList [1..10] :: Vector RunTime Int
+v' = withParam3' _len 10 $ VG.fromList [1..10] :: Vector RunTime Int
 -- v'' = withParam4 len3 10 $ VG.fromList [1..10] :: Vector RunTime Int
 
 w :: Vector RunTime (Vector (Static 10) Int)
-w = withParam3 (len2 1) $ VG.singleton $ VG.fromList [1..10] 
+w = withParam3' _len 1 $ VG.singleton $ VG.fromList [1..10] 
 
 w' :: Vector RunTime (Vector RunTime Int)
-w' = withParam3' len2 1 
-   $ withParam3' (elem2.len2) 10 
+w' = withParam3' _len 1 
+   $ withParam3' (_elem._len) 10 
    $ VG.singleton $ VG.fromList [1..10] 
 
 -- u'' :: Vector (Static 1) (Vector Automatic Int)
@@ -98,91 +98,20 @@ instance Meta_b Param_len b (Either a b) where
 
 -------------------
 
-class ValidParam param datatype where
-    viewParam :: ValidParamIndex param -> datatype -> ParamType param
-
 type family ParamType (p::k) :: *
-type instance ParamType ParamIndex_len = Int
-type instance ParamType (ParamIndex_elem p) = ParamType p
 type instance ParamType Param_len = Int
-
-type ValidParamIndex param = ParamType param -> param
-type family Index2Param p :: * -> Constraint
-type instance Index2Param ParamIndex_len = Param_len
-type instance Index2Param (ParamIndex_elem p) = Param_elem (Index2Param p)
-
-type family ParamApply p  :: *
-type instance ParamApply ParamIndex_len = Vector RunTime Int
-
-data ParamIndex_len = ParamIndex_len Int
-len3 = ParamIndex_len
-
-instance KnownNat n => ValidParam ParamIndex_len (Vector (Static n) elem) where
-    viewParam _ _ = fromIntegral $ natVal (Proxy::Proxy n)
-
-data ParamIndex_elem p = ParamIndex_elem p
-elem3 = ParamIndex_elem
-class Param_elem (p :: * -> Constraint) m
-instance p elem => Param_elem p (Vector len elem)
-
-instance ReifiableConstraint p => ReifiableConstraint (Param_elem p) 
-
-instance ValidParam p elem => ValidParam (ParamIndex_elem p) (Vector len elem) where
-    viewParam _ _ = viewParam (undefined::ParamType p -> p) (undefined::elem)
-
-withParam4 :: 
-    ( ReifiableConstraint (Index2Param p) 
-    ) => ValidParamIndex p -> ParamType p -> (Index2Param p (ParamApply p) => b) -> b
-withParam4 pi pt = using' (unsafeCoerce (pi pt))
-
-apWithParam4 :: 
-    ( ReifiableConstraint (Index2Param p) 
-    ) => ValidParamIndex p -> ParamType p -> (Index2Param p a => b -> c) -> (Index2Param p a => b) -> c
-apWithParam4 pi pt = flip $ apUsing' (unsafeCoerce (pi pt))
-
--- withParam3 p = using' (reifiableConstraint p (\x -> getParamDict p))
-
--- class WithParam4 p where
---     withParam4 :: Def p a -> ((p a) => b) -> b
-
--- instance WithParam4 ParamIndex_len where
---     withParam4 = unsafeCoerce using
 
 ---------
 
 data family ParamDict (p1::k1) (p2::k2) m1 m2
 
-class ValidDictionary (p1::k1) (p2:: * -> Constraint) m1 m2 where
-    getParamDict :: ParamDict p1 p2 m1 m2 -> ParamType p2
-    reifiableConstraint :: ParamDict p1 p2 m1 m2 -> (a -> ParamType p2) -> Def p2 a
-
--- viewParam3 ::
---     (
---     ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m1 -> ParamType p2
--- viewParam3 = undefined
-
-withParam3 :: 
-    ( ValidDictionary p1 p2 m1 m2 
-    , ReifiableConstraint p2
-    ) => ParamDict p1 p2 m1 m2 -> (p2 m2 => m1) -> m1
-withParam3 p = using' (reifiableConstraint p (\x -> getParamDict p))
-
+data FIXME a = FIXME a
 withParam3' :: 
---     ( ValidDictionary p1 p2 m1 m2 
     ( ReifiableConstraint p2
     ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) -> ParamType p2 -> (p2 m2 => m1) -> m1
--- withParam3' p pt = using' (reifiableConstraint (p pt) (\x -> getParamDict (p pt)))
 withParam3' pi pt = using' (unsafeCoerce FIXME (\x -> unsafeCoerce (pi pt)))
 
-apWithParam3 ::
-    ( ValidDictionary p1 p2 m1 m2 
-    , ReifiableConstraint p2
-    ) => ParamDict p1 p2 m1 m2 -> (p2 m2 => m1 -> n) -> (p2 m2 => m1) -> n
-apWithParam3 p = flip $ apUsing' (reifiableConstraint p (\x -> getParamDict p))
-
-data FIXME a = FIXME a
 apWithParam3' ::
---     ( ValidDictionary p1 p2 m1 m2 
     ( ReifiableConstraint p2
     ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) 
       -> ParamType p2 
@@ -190,75 +119,50 @@ apWithParam3' ::
       -> (p2 m2 => m1) 
       -> n
 apWithParam3' p pt = flip $ apUsing' ( unsafeCoerce FIXME (\x -> unsafeCoerce (p pt)))
--- apWithParam3' pi pt = flip $ apUsing' (unsafeCoerce (\a -> pi pt))
 
 apWith2Param ::
     ( ReifiableConstraint p2
     , ReifiableConstraint p3
-    ) => (ParamDict p1 p2 m1 m2)
-      -> (ParamDict p3 p4 m1 m3)
+    ) => ParamDict p1 p2 m1 m2
+      -> ParamDict p3 p4 m1 m3
       -> ((p2 m2,p4 m3) => m1 -> n)
       -> ((p2 m2,p4 m3) => m1)
       -> n
-apWith2Param = undefined
+apWith2Param p1 p2 = undefined
 
 class ViewParam p1 p2 m1 m2 where
-    viewParam3 :: (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m2 -> ParamType p2
+    viewParam :: (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m1 -> ParamType p2
 
-instance Param_len m2 => ViewParam Param_len Param_len (Vector len elem) m2 where
--- instance Param_len (Vector len elem) => ViewParam Param_len Param_len (Vector len elem) (Vector len elem) where
-    viewParam3 _ = param_len
+instance 
+    ( Param_len (Vector len elem) 
+    ) => ViewParam Param_len Param_len (Vector len elem) (Vector len elem) 
+        where
+    viewParam _ = param_len
 
 instance 
     ( ViewParam p1 p2 elem m2
     ) => ViewParam (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
         where
-    viewParam3 _ = viewParam3 (undefined :: ParamType p2 -> ParamDict p1 p2 elem m2)
+    viewParam _ _ = viewParam (undefined :: ParamType p2 -> ParamDict p1 p2 elem m2) (undefined::elem)
      
--- instance 
---     ( ValidDictionary p1 p2 (Vector len elem) m2
---     ) => ValidDictionary (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
---         where
-
 -- len
 
-class BuildParamDict_len m elem | m -> elem where
-    len2 :: Int -> ParamDict Param_len Param_len m m
+class HasParameter_len m where
+    _len :: Int -> ParamDict Param_len Param_len m m
 
-instance BuildParamDict_len (Vector len elem) (Vector len elem) where
-    len2 = ParamDict_Vector_len
+instance HasParameter_len (Vector len elem) where
+    _len = ParamDict_Vector_len
 
-instance ValidDictionary Param_len Param_len (Vector RunTime elem) m2 where
-    getParamDict = getParamDict_Vector_len
-    reifiableConstraint p = Def_Param_len
-
--- newtype instance ParamDict Param_len Param_len (Vector RunTime elem) m2 =
 newtype instance ParamDict Param_len Param_len (Vector len elem) m2 =
     ParamDict_Vector_len { getParamDict_Vector_len :: Int }
 
 -- elem
 
-class BuildParamDict_elem m elem | m -> elem where
-    elem2 :: ()--WithParam2 p1 p2 elem m2 
-         => ParamDict p1 p2 elem m2 
-         -> ParamDict (Meta_elem p1 m) p2 m m2 
+class TypeLens_elem m elem | m -> elem where
+    _elem :: ParamDict p1 p2 elem m2 -> ParamDict (Meta_elem p1 m) p2 m m2 
 
-instance BuildParamDict_elem (Vector len elem) elem where
-    elem2 = ParamDict_Vector_elem
-
-instance 
-    ( ValidDictionary p1 p1 elem elem
-    ) => ValidDictionary p1 p1 (Vector len elem) elem
-        where
-    getParamDict = unsafeCoerce (getParamDict :: ParamDict p1 p1 elem elem -> ParamType p1)
-    reifiableConstraint = unsafeCoerce (reifiableConstraint :: ParamDict p1 p1 elem elem -> (a -> ParamType p1) -> Def p1 a) 
-
-instance 
-    ( ValidDictionary p1 p2 (Vector len elem) m2
-    ) => ValidDictionary (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
-        where
-    getParamDict = unsafeCoerce getParamDict_Vector_elem
-    reifiableConstraint = unsafeCoerce (reifiableConstraint :: ParamDict p1 p2 (Vector len elem) m2 -> (a -> ParamType p2) -> Def p2 a)
+instance TypeLens_elem (Vector len elem) elem where
+    _elem = ParamDict_Vector_elem
 
 newtype instance ParamDict (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 =
     ParamDict_Vector_elem { getParamDict_Vector_elem :: ParamDict p1 p2 elem m2 }
