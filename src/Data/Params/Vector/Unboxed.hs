@@ -59,76 +59,54 @@ u :: Vector (Static 1) (Vector (Static 10) Int)
 u = VG.singleton $ VG.fromList [1..10] 
 
 u' :: Vector (Static 1) (Vector RunTime Int)
-u' = withParam2 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
+u' = withParam3 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
 
 u'' :: Vector (Static 1) (Vector RunTime Int)
-u'' = withParam3' (_elem._len) 10 $ VG.singleton $ VG.fromList [1..10] 
+u'' = withParam3 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
 
-v' = withParam3' _len 10 $ VG.fromList [1..10] :: Vector RunTime Int
--- v'' = withParam4 len3 10 $ VG.fromList [1..10] :: Vector RunTime Int
+v' = withParam3 (_len 10) $ VG.fromList [1..10] :: Vector RunTime Int
 
 w :: Vector RunTime (Vector (Static 10) Int)
-w = withParam3' _len 1 $ VG.singleton $ VG.fromList [1..10] 
+w = withParam3 (_len 1) $ VG.singleton $ VG.fromList [1..10] 
 
 w' :: Vector RunTime (Vector RunTime Int)
-w' = withParam3' _len 1 
-   $ withParam3' (_elem._len) 10 
+w' = withParam3 (_len 1)
+   $ withParam3 (_elem._len $ 10)
    $ VG.singleton $ VG.fromList [1..10] 
-
--- u'' :: Vector (Static 1) (Vector Automatic Int)
--- u'' = VG.singleton $ VG.fromList [1..10]
-
-class Meta_elem (p :: * -> Constraint) e v | v -> e where
-    meta_elem :: (e -> a) -> v -> a
-
-instance Meta_elem p elem (Vector len elem) where
-    meta_elem p _ = p (undefined::elem)
-
-class Meta_a (p :: * -> Constraint) e v | v -> e where
-    meta_a :: (e -> a) -> v -> a
-
-class Meta_b (p :: * -> Constraint) e v | v -> e where
-    meta_b :: (e -> a) -> v -> a
-
-instance Meta_a Param_len a (Either a b) where
-    meta_a p _ = p (undefined::elem)
-
-instance Meta_b Param_len b (Either a b) where
-    meta_b p _ = p (undefined::elem)
-
--------------------
-
-type family ParamType (p::k) :: *
-type instance ParamType Param_len = Int
 
 ---------
 
 data family ParamDict (p1::k1) (p2::k2) m1 m2
 
-data FIXME a = FIXME a
-withParam3' :: 
-    ( ReifiableConstraint p2
-    ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) -> ParamType p2 -> (p2 m2 => m1) -> m1
-withParam3' pi pt = using' (unsafeCoerce FIXME (\x -> unsafeCoerce (pi pt)))
+newtype DummyNewtype a = DummyNewtype a
 
-apWithParam3' ::
+withParam3 :: 
     ( ReifiableConstraint p2
-    ) => (ParamType p2 -> ParamDict p1 p2 m1 m2) 
-      -> ParamType p2 
+    ) => ParamDict p1 p2 m1 m2
+      -> (p2 m2 => m1) 
+      -> m1
+withParam3 p = using' (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p))
+
+apWith1Param ::
+    ( ReifiableConstraint p2
+    ) => ParamDict p1 p2 m1 m2
       -> (p2 m2 => m1 -> n) 
       -> (p2 m2 => m1) 
       -> n
-apWithParam3' p pt = flip $ apUsing' ( unsafeCoerce FIXME (\x -> unsafeCoerce (p pt)))
+apWith1Param p = flip $ apUsing' 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p))
 
 apWith2Param ::
     ( ReifiableConstraint p2
-    , ReifiableConstraint p3
+    , ReifiableConstraint p4
     ) => ParamDict p1 p2 m1 m2
       -> ParamDict p3 p4 m1 m3
       -> ((p2 m2,p4 m3) => m1 -> n)
       -> ((p2 m2,p4 m3) => m1)
       -> n
-apWith2Param p1 p2 = undefined
+apWith2Param p1 p2 = flip $ apUsing2 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p1)) 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p2))
 
 class ViewParam p1 p2 m1 m2 where
     viewParam :: (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m1 -> ParamType p2
@@ -141,16 +119,41 @@ instance
 
 instance 
     ( ViewParam p1 p2 elem m2
-    ) => ViewParam (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
+    ) => ViewParam (TypeParam_elem p1 (Vector len elem)) p2 (Vector len elem) m2 
         where
     viewParam _ _ = viewParam (undefined :: ParamType p2 -> ParamDict p1 p2 elem m2) (undefined::elem)
      
+-------------------
+
+---
+
+type TypeIndex' s t = forall (p1 :: * -> Constraint) (p2 :: * -> Constraint) m2. 
+    ParamDict p1 p2 t m2 -> ParamDict (HasGetter p1 s) p2 s m2
+
+class HasGetter loc s t where
+    getGetter :: proxy loc -> (t -> a) -> s -> a
+
+
+type family ParamType (p::k) :: *
+type instance ParamType Param_len = Int
+
+type family GetParam (p :: k1) (s :: k2) :: k3
+type instance GetParam TypeParam_elem (Vector len elem) = elem
+type instance GetParam TypeParam_len (Vector len elem) = len
+
+type family SetParam (p :: k1) (s :: k2) (t :: k3) :: k4
+type instance SetParam TypeParam_elem (Vector len elem) elem' = Vector len elem'
+type instance SetParam TypeParam_len (Vector len elem) len' = Vector len' elem
+
+class EndoFunctor param f where
+    efmap :: proxy param -> (GetParam param f -> b) -> f -> SetParam param f b
+
 -- len
 
-class HasParameter_len m where
+class TypeParam_len m where
     _len :: Int -> ParamDict Param_len Param_len m m
 
-instance HasParameter_len (Vector len elem) where
+instance TypeParam_len (Vector len elem) where
     _len = ParamDict_Vector_len
 
 newtype instance ParamDict Param_len Param_len (Vector len elem) m2 =
@@ -158,54 +161,49 @@ newtype instance ParamDict Param_len Param_len (Vector len elem) m2 =
 
 -- elem
 
-class TypeLens_elem m elem | m -> elem where
-    _elem :: ParamDict p1 p2 elem m2 -> ParamDict (Meta_elem p1 m) p2 m m2 
+class TypeParam_elem (p :: * -> Constraint) s where
+    getParam_elem :: (GetParam TypeParam_elem s -> a) -> s -> a
 
-instance TypeLens_elem (Vector len elem) elem where
+instance TypeParam_elem p (Vector len elem) where
+    getParam_elem p _ = p (undefined::elem)
+
+data TypeIndex s t = forall (p1 :: * -> Constraint) (p2 :: * -> Constraint) m2.
+    TypeIndex (ParamDict p1 p2 t m2 -> ParamDict (HasGetter p1 s) p2 s m2)
+
+class TypeIndex_elem m elem | m -> elem where
+    _elem :: ParamDict p1 p2 elem m2 -> ParamDict (TypeParam_elem p1 m) p2 m m2
+
+instance TypeIndex_elem (Vector len elem) elem where
     _elem = ParamDict_Vector_elem
 
-newtype instance ParamDict (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2 =
+newtype instance ParamDict (TypeParam_elem p1 (Vector len elem)) p2 (Vector len elem) m2 =
     ParamDict_Vector_elem { getParamDict_Vector_elem :: ParamDict p1 p2 elem m2 }
 
 -- Either 
 
-newtype instance ParamDict (Meta_b p1 (Either a b)) p2 (Either a b) c =
-    ParamDict_Either_b { getParamDict_Either_b :: ParamDict p1 p2 b c }
+class TypeIndex_a m a | m -> a where
+    _a :: ParamDict p1 p2 a m2 -> ParamDict (Meta_a p1 m) p2 m m2
+
+instance TypeIndex_a (Either a b) a where
+    _a = ParamDict_Either_a
 
 newtype instance ParamDict (Meta_a p1 (Either a b)) p2 (Either a b) c =
     ParamDict_Either_a { getParamDict_Either_a :: ParamDict p1 p2 a c }
 
--------------------
--- param2
+newtype instance ParamDict (Meta_b p1 (Either a b)) p2 (Either a b) c =
+    ParamDict_Either_b { getParamDict_Either_b :: ParamDict p1 p2 b c }
 
-class WithParam2 p1 p2 m1 m2 where
-    withParam2 :: ParamDict p1 p2 m1 m2 -> (p2 m2 => m1) -> m1
-    apWithParam2 :: ParamDict p1 p2 m1 m2 -> (p2 m2 => m1 -> n) -> (p2 m2 => m1) -> n
+class Meta_a (p :: * -> Constraint) e v | v -> e where
+    meta_a :: (e -> a) -> v -> a
 
-instance WithParam2 Param_len Param_len (Vector RunTime elem) m2 where
-    withParam2 p = using' (Def_Param_len (\x -> getParamDict_Vector_len p)) 
-    apWithParam2 p = flip (apUsing' (Def_Param_len (\x -> getParamDict_Vector_len p)))
+class Meta_b (p :: * -> Constraint) e v | v -> e where
+    meta_b :: (e -> a) -> v -> a
 
-instance 
-    ( WithParam2 p1 p2 elem m2
-    ) => WithParam2 (Meta_elem p1 (Vector len elem)) p2 (Vector len elem) m2
-        where
-    withParam2 (ParamDict_Vector_elem p) = unsafeCoerce $ withParam2 p
-    apWithParam2 (ParamDict_Vector_elem p) = unsafeCoerce $ apWithParam2 p
+instance Meta_a Param_len a (Either a b) where
+    meta_a p _ = p (undefined::elem)
 
-instance
-    ( WithParam2 p1 p2 b c
-    ) => WithParam2 (Meta_b p1 (Either a b)) p2 (Either a b) c 
-        where
-    withParam2 (ParamDict_Either_b p) = unsafeCoerce $ withParam2 p
-    apWithParam2 (ParamDict_Either_b p) = unsafeCoerce $ apWithParam2 p
-
-instance
-    ( WithParam2 p1 p2 a c
-    ) => WithParam2 (Meta_a p1 (Either a b)) p2 (Either a b) c 
-        where
-    withParam2 (ParamDict_Either_a p) = unsafeCoerce $ withParam2 p
-    apWithParam2 (ParamDict_Either_a p) = unsafeCoerce $ apWithParam2 p
+instance Meta_b Param_len b (Either a b) where
+    meta_b p _ = p (undefined::elem)
 
 -------------------
 
@@ -294,8 +292,14 @@ data instance Vector RunTime elem = Vector_RunTime
 instance NFData (Vector RunTime elem) where
     rnf a = seq a ()
 
-instance Prim elem => SetParam Param_len (Vector RunTime elem) (Vector Automatic elem) where
-    setParam p v = VG.fromList $ apWithParam p VG.toList v 
+-- instance 
+--     ( Prim elem 
+--     ) => SetParam 
+--             Param_len 
+--             (Vector RunTime elem) 
+--             (Vector (Automatic 1) elem) 
+--         where
+--     setParam p v = VG.fromList $ apWithParam p VG.toList v 
 
 instance 
     ( Prim elem 
@@ -375,15 +379,15 @@ instance
 ---------------------------------------
 -- Automatic sized
 
-newtype instance Vector Automatic elem = Vector_Automatic (VP.Vector elem)
+newtype instance Vector (Automatic len) elem = Vector_Automatic (VP.Vector elem)
 
-instance Prim elem => Param_len (Vector Automatic elem) where
+instance Prim elem => Param_len (Vector (Automatic len) elem) where
     param_len v = VG.length v
 
-instance NFData elem => NFData (Vector Automatic elem) where
+instance NFData elem => NFData (Vector (Automatic len) elem) where
     rnf (Vector_Automatic v) = rnf v
 
-instance Prim elem => VG.Vector (Vector Automatic) elem where 
+instance Prim elem => VG.Vector (Vector (Automatic len)) elem where 
     {-# INLINE basicUnsafeFreeze #-}
     basicUnsafeFreeze (MVector_Automatic v) = Vector_Automatic `liftM` VG.basicUnsafeFreeze v
 
@@ -544,10 +548,10 @@ instance
 ---------------------------------------
 -- Automatic size
 
-newtype instance MVector Automatic s elem = MVector_Automatic (VPM.MVector s elem)
+newtype instance MVector (Automatic len) s elem = MVector_Automatic (VPM.MVector s elem)
 mkParams ''MVector
 
-instance Prim elem => VGM.MVector (MVector Automatic) elem where
+instance Prim elem => VGM.MVector (MVector (Automatic len)) elem where
 
     {-# INLINE basicLength #-}
     basicLength (MVector_Automatic v) = VGM.basicLength v

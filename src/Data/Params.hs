@@ -61,19 +61,19 @@ module Data.Params
     Param (..)
     , mkParams
 
-    , withParam
+--     , withParam
 --     , withParam2
 --     , withParam3
 
-    , withInnerParam
+--     , withInnerParam
 --     , withInnerParam2
 --     , withInnerParam3
 
-    , apWithParam
+--     , apWithParam
 --     , apWithInnerParam
 
     -- ** Classes
-    , SetParam (..)
+--     , SetParam (..)
     , WithParam (..)
 
     -- * Advanced 
@@ -102,6 +102,7 @@ module Data.Params
     , using
     , using'
     , apUsing
+    , apUsing2
     , apUsing'
     , intparam 
 
@@ -166,7 +167,7 @@ return $
 data Param a 
     = Static a -- ^ The parameter is statically set to 'a'
     | RunTime  -- ^ The parameter is determined at run time using the 'withParam' functions
-    | Automatic -- ^ The parameter is determined at run time and the value is inferred automatically without user specification
+    | Automatic a -- ^ The parameter is determined at run time and the value is inferred automatically without user specification
 
 ---------------------------------------
 
@@ -197,7 +198,24 @@ apUsing d m f = reify d $ \(_ :: Proxy s) ->
     let replaceProof :: Reifies s (Def p a) :- p a
         replaceProof = trans proof reifiedIns
             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
-    in (f m) \\ replaceProof
+    in (f m) \\ replaceProof 
+
+apUsing2 :: forall p1 p2 a a1 a2 b. 
+    ( ReifiableConstraint p1
+    , ReifiableConstraint p2
+    ) => Def p1 a1 
+      -> Def p2 a2
+      -> ((p1 a1,p2 a2) => a) 
+      -> ((p1 a1,p2 a2) => a -> b) 
+      -> b
+apUsing2 d1 d2 m f = reify d2 $ \(_ :: Proxy s2) -> reify d1 $ \(_ :: Proxy s1) ->
+    let replaceProof :: Reifies s1 (Def p1 a1) :- p1 a1
+        replaceProof = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p1 (ConstraintLift p1 a1 s1) :- p1 a1
+        replaceProof2 :: Reifies s2 (Def p2 a2) :- p2 a2
+        replaceProof2 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p2 (ConstraintLift p2 a2 s2) :- p2 a2
+    in (f m) \\ replaceProof \\ replaceProof2
 
 apUsing' :: forall p a1 a2 b. ReifiableConstraint p => Def p a2 -> (p a2 => a1) -> (p a2 => a1 -> b) -> b
 apUsing' def = unsafeCoerce $ apUsing def
@@ -637,16 +655,17 @@ mkReifiableConstraint' c funcL = do
             [ InstanceD 
                 []
                 (AppT (ConT $ mkName "ReifiableConstraint") (ConT c))
-                [ DataInstD 
+--                 [ DataInstD 
+                [ NewtypeInstD 
                     []
                     (mkName "Def")
                     [ ConT c, VarT tyVar]
-                    [ RecC 
+                    ( RecC 
                         (mkName $ "Def_"++nameBase c) 
                         [ (mkName $ nameBase fname ++ "_", NotStrict, insertTyVar (tyVar) ftype) 
                             | SigD fname ftype <- funcL
                         ]
-                    ]
+                    )
                     []
                 , ValD 
                     (VarP $ mkName "reifiedIns") 
