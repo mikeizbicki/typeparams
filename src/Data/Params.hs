@@ -167,7 +167,7 @@ return $
 data Param a 
     = Static a -- ^ The parameter is statically set to 'a'
     | RunTime  -- ^ The parameter is determined at run time using the 'withParam' functions
-    | Automatic a -- ^ The parameter is determined at run time and the value is inferred automatically without user specification
+    | Automatic -- ^ The parameter is determined at run time and the value is inferred automatically without user specification
 
 ---------------------------------------
 
@@ -337,8 +337,8 @@ mkParams dataName = do
 
     paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass n t) varL' 
     reifiableC <- liftM concat $ mapM (\(n,k,t) -> mkReifiableConstraint' 
-            (mkName $ "Param_"++n) 
-            [SigD (mkName $ "param_"++n) $ AppT (AppT ArrowT (VarT $ mkName "m")) t ])
+            (mkName $ "GetParam_"++n) 
+            [SigD (mkName $ "getParam_"++n) $ AppT (AppT ArrowT (VarT $ mkName "m")) t ])
          varL' 
     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
 
@@ -383,21 +383,21 @@ kind2convert (ConT n) = mkName $ case nameBase n of
     _ -> "id"
 
 param2class :: Name -> Name
-param2class p = mkName $ "Param_" ++ nameBase p
+param2class p = mkName $ "GetParam_" ++ nameBase p
 
 param2func :: Name -> Name
-param2func p = mkName $ "param_" ++ nameBase p
+param2func p = mkName $ "getParam_" ++ nameBase p
 
 ---------------------------------------
 -- helper TH functions
 
 -- | creates instances of the form
 --
--- > instance (KnownNat paramName) => Param_paramName (Static paramName) where
+-- > instance (KnownNat paramName) => GetParam_paramName (Static paramName) where
 -- >     param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
 -- >
--- > instance WithParam Param_paramName (dataName) where
--- >     data DefParam Param_paramName (dataName ...) = WithParam_dataName_paramName (...)
+-- > instance WithParam GetParam_paramName (dataName) where
+-- >     data DefParam GetParam_paramName (dataName ...) = WithParam_dataName_paramName (...)
 -- >     withParam = (...)
 --
 mkParamInstance :: String -> Type -> Name -> Q [Dec]
@@ -425,7 +425,7 @@ mkParamInstance paramStr paramType dataName  = do
                 (ConT $ param2class paramName)
                 (tyVarL2Type tyVarL (AppT (PromotedT $ mkName "Static") (VarT paramName))))
             [ FunD
-                ( mkName $ "param_"++nameBase paramName )
+                ( mkName $ "getParam_"++nameBase paramName )
                 [ Clause
                     [ VarP $ mkName "m" ]
                     (NormalB $
@@ -473,7 +473,7 @@ mkParamInstance paramStr paramType dataName  = do
                             (AppE
                                 (VarE $ mkName "using")
                                 (AppE
-                                    (ConE $ mkName $ "Def_Param_"++nameBase paramName)
+                                    (ConE $ mkName $ "Def_GetParam_"++nameBase paramName)
                                     (LamE
                                         [VarP $ mkName"x"]
                                         (AppE
@@ -497,7 +497,7 @@ mkParamInstance paramStr paramType dataName  = do
                                 (AppE 
                                     (VarE $ mkName "apUsing")
                                     (AppE
-                                        (ConE $ mkName $ "Def_Param_"++nameBase paramName)
+                                        (ConE $ mkName $ "Def_GetParam_"++nameBase paramName)
                                         (LamE
                                             [VarP $ mkName"x"]
                                             (AppE
@@ -532,17 +532,17 @@ mkParamInstance paramStr paramType dataName  = do
 --
 mkParamClass :: String -> Type -> Q [Dec]
 mkParamClass paramname paramT = do
-    isDef <- lookupTypeName $ "Param_"++paramname
+    isDef <- lookupTypeName $ "GetParam_"++paramname
     return $ case isDef of
         Just _ -> []
         Nothing -> 
             [ ClassD
                 []
-                (mkName $ "Param_"++paramname) 
+                (mkName $ "GetParam_"++paramname) 
                 [PlainTV $ mkName "m"]
                 []
                 [ SigD
-                    (mkName $ "param_"++paramname) 
+                    (mkName $ "getParam_"++paramname) 
                     (AppT
                         (AppT
                             ArrowT
@@ -578,7 +578,7 @@ mkWithParamClass paramname paramT = do
                         (AppT
                             (AppT
                                 (ConT $ mkName "DefParam")
-                                (ConT $ mkName $ "Param_"++paramname)
+                                (ConT $ mkName $ "GetParam_"++paramname)
                             )
                             (VarT $ mkName "m")
                         )
@@ -634,7 +634,7 @@ mkWithParamInstance paramStr paramType dataName  = do
 -- | helper for 'mkReifiableConstraints''
 mkReifiableConstraint :: String -> Q [Dec]
 mkReifiableConstraint paramStr = do
-    let name = mkName $ "Param_"++paramStr
+    let name = mkName $ "GetParam_"++paramStr
     info <- TH.reify name
     let funcL = case info of
             ClassI (ClassD _ _ _ _ xs) _ -> xs

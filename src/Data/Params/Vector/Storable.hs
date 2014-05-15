@@ -49,6 +49,9 @@ import GHC.Int
 import GHC.Prim
 import GHC.TypeLits
 import Data.Params
+import Data.Params.Vector
+
+import Unsafe.Coerce
 
 -------------------------------------------------------------------------------
 -- taken from Data.Vector.Storable.Internal
@@ -68,6 +71,157 @@ mallocVector =
 #else
     mallocForeignPtrArray
 #endif
+
+-------------------------------------------------------------------------------
+
+-- u :: Vector (Static 1) (Vector (Static 10) Int)
+-- u = VG.singleton $ VG.fromList [1..10] 
+-- 
+-- u' :: Vector (Static 1) (Vector RunTime Int)
+-- u' = withParam3 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
+-- 
+-- u'' :: Vector (Static 1) (Vector RunTime Int)
+-- u'' = withParam3 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
+-- 
+-- v' = withParam3 (_len 10) $ VG.fromList [1..10] :: Vector RunTime Int
+-- 
+-- w :: Vector RunTime (Vector (Static 10) Int)
+-- w = withParam3 (_len 1) $ VG.singleton $ VG.fromList [1..10] 
+-- 
+-- w' :: Vector RunTime (Vector RunTime Int)
+-- w' = withParam3 (_len 1)
+--    $ withParam3 (_elem._len $ 10)
+--    $ VG.singleton $ VG.fromList [1..10] 
+
+---------
+
+data family ParamDict (p1::k1) (p2::k2) m1 m2
+
+newtype DummyNewtype a = DummyNewtype a
+
+withParam3 :: 
+    ( ReifiableConstraint p2
+    ) => ParamDict p1 p2 m1 m2
+      -> (p2 m2 => m1) 
+      -> m1
+withParam3 p = using' (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p))
+
+apWith1Param ::
+    ( ReifiableConstraint p2
+    ) => ParamDict p1 p2 m1 m2
+      -> (p2 m2 => m1 -> n) 
+      -> (p2 m2 => m1) 
+      -> n
+apWith1Param p = flip $ apUsing' 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p))
+
+apWith2Param ::
+    ( ReifiableConstraint p2
+    , ReifiableConstraint p4
+    ) => ParamDict p1 p2 m1 m2
+      -> ParamDict p3 p4 m1 m3
+      -> ((p2 m2,p4 m3) => m1 -> n)
+      -> ((p2 m2,p4 m3) => m1)
+      -> n
+apWith2Param p1 p2 = flip $ apUsing2 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p1)) 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p2))
+
+-------------------
+
+---
+
+type ViewParam' p m = ViewParam p p m m 
+
+class ViewParam p1 p2 m1 m2 where
+    viewParam :: (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m1 -> ParamType p2
+
+type TypeIndex' s t = forall (p1 :: * -> Constraint) (p2 :: * -> Constraint) m2. 
+    ParamDict p1 p2 t m2 -> ParamDict (HasGetter p1 s) p2 s m2
+
+class HasGetter loc s t where
+    getGetter :: proxy loc -> (t -> a) -> s -> a
+
+
+type family ParamType (p::k) :: *
+type instance ParamType GetParam_len = Int
+
+-- class EndoFunctor param f where
+--     efmap :: proxy param -> (GetParam param f -> b) -> f -> SetParam param f b
+
+-- len
+
+class SetParam_len m where
+    _len :: Int -> ParamDict GetParam_len GetParam_len m m
+
+instance SetParam_len (Vector len elem) where
+    _len = ParamDict_Vector_len
+
+instance 
+    ( GetParam_len (Vector len elem) 
+--     ) => ViewParam GetParam_len GetParam_len (Vector len elem) (Vector len elem) 
+    ) => ViewParam GetParam_len GetParam_len m (Vector len elem) 
+        where
+    viewParam _ _ = getParam_len (undefined :: Vector len elem)
+
+newtype instance ParamDict GetParam_len GetParam_len (Vector len elem) m2 =
+    ParamDict_Vector_len { getParamDict_Vector_len :: Int }
+
+-- elem
+
+instance 
+    ( ViewParam p1 p2 elem m2
+    , ApplyConstraintTo_elem p1 (Vector len elem)
+    ) => ViewParam (ApplyConstraintTo_elem p1) p2 (Vector len elem) m2 
+        where
+    viewParam _ _ = viewParam (undefined :: ParamType p2 -> ParamDict p1 p2 elem m2) (undefined::elem)
+     
+class ApplyConstraintTo_elem (p :: * -> Constraint) s 
+
+instance p elem => ApplyConstraintTo_elem p (Vector len elem)
+
+class SetParam_elem m elem | m -> elem where
+    _elem :: ParamDict p1 p2 elem m2 -> ParamDict (ApplyConstraintTo_elem p1 m) p2 m m2
+
+instance SetParam_elem (Vector len elem) elem where
+    _elem = ParamDict_Vector_elem
+
+newtype instance ParamDict (ApplyConstraintTo_elem p1 (Vector len elem)) p2 (Vector len elem) m2 =
+    ParamDict_Vector_elem { getParamDict_Vector_elem :: ParamDict p1 p2 elem m2 }
+
+-- Either 
+
+class TypeIndex_a m a | m -> a where
+    _a :: ParamDict p1 p2 a m2 -> ParamDict (Meta_a p1 m) p2 m m2
+
+instance TypeIndex_a (Either a b) a where
+    _a = ParamDict_Either_a
+
+class TypeIndex_b m b | m -> b where    
+    _b :: ParamDict p1 p2 b m2 -> ParamDict (Meta_b p1 m) p2 m m2
+
+instance TypeIndex_b (Either a b) b where
+    _b = ParamDict_Either_b
+
+newtype instance ParamDict (Meta_a p1 (Either a b)) p2 (Either a b) c =
+    ParamDict_Either_a { getParamDict_Either_a :: ParamDict p1 p2 a c }
+
+newtype instance ParamDict (Meta_b p1 (Either a b)) p2 (Either a b) c =
+    ParamDict_Either_b { getParamDict_Either_b :: ParamDict p1 p2 b c }
+
+class Meta_a (p :: * -> Constraint) e v | v -> e where
+    meta_a :: (e -> a) -> v -> a
+
+class Meta_b (p :: * -> Constraint) e v | v -> e where
+    meta_b :: (e -> a) -> v -> a
+
+instance Meta_a GetParam_len a (Either a b) where
+    meta_a p _ = p (undefined::elem)
+
+instance Meta_b GetParam_len b (Either a b) where
+    meta_b p _ = p (undefined::elem)
+
+-------------------
 
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
@@ -134,6 +288,12 @@ instance
 -------------------
 -- storable instance allows us to make vectors of vectors
 
+-- class PseudoStorable a where
+--     psizeOf :: a -> Int
+--     palignment :: a -> Int
+--     ppeek :: Ptr a -> IO a
+--     ppoke :: Ptr a -> a -> IO ()
+
 instance 
     ( Storable elem
     , KnownNat len
@@ -159,6 +319,33 @@ instance
             Foreign.Marshal.Array.copyArray (castPtr p) q len
         where
             len = intparam (Proxy::Proxy len)
+
+instance 
+    ( Storable elem
+    , ViewParam' GetParam_len (Vector RunTime elem)
+    ) => Storable (Vector RunTime elem)
+        where
+
+    {-# INLINE sizeOf #-}
+    sizeOf v = len * sizeOf (undefined::elem)
+        where
+            len = viewParam _len v
+
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined::elem)
+
+--     {-# INLINE peek #-}
+--     peek p = unsafePrimToPrim $ do
+--         fp <- newForeignPtr_ (castPtr p :: Ptr elem)
+--         return $ Vector_RunTime fp
+-- 
+--     {-# INLINE poke #-}
+--     poke p (Vector fq) = unsafePrimToPrim $ do
+--         withForeignPtr fq $ \q -> 
+--             Foreign.Marshal.Array.copyArray (castPtr p) q len
+--         where
+--             len = viewParam _len (undefined::Vector RunTime elem)
+-- --             len = intparam (Proxy::Proxy len)
 
 -------------------------------------------------------------------------------
 -- mutable vector
