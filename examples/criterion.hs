@@ -1,6 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 import Control.DeepSeq
 import Control.Monad
@@ -18,11 +21,16 @@ import qualified Data.Params.Vector.Storable as VPSR
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector as V
 
+import GHC.Float
+import GHC.Int
+import GHC.Base (Int (..))
+import GHC.Prim
+
 -------------------------------------------------------------------------------
 -- criterion tests
 
 -- | size of each vector to test; must be divisible by 4
-type Veclen = 40
+type Veclen = 400
 veclen = fromIntegral $ natVal (Proxy::Proxy Veclen)
 
 -- | number of vectors in 2d tests
@@ -30,7 +38,7 @@ type Numvec = 100
 numvec = fromIntegral $ natVal (Proxy::Proxy Numvec)
 
 -- | numeric type to test against
-type NumType = Double
+type NumType = Float
 
 -- | criterion configuration parameters
 critConfig = defaultConfig 
@@ -185,6 +193,22 @@ main = do
                 , bench "VPSR.Vector (Static Veclen)"  $ nf (distance_Vector_diff4 vpsr1) vpsr2
                 , bench "ByteArray"                 $ nf (distance_ByteArray_diff4 ba1) ba2
                 ]
+            , bgroup "simd"
+                [ bgroup "ByteArray"
+                    [ bench "diff1-ByteArray"                 $ nf (distance_ByteArray_diff1 ba1) ba2
+                    , bench "simd4-ByteArray"                 $ nf (distance_ByteArray_simd4 ba1) ba2
+                    , bench "simd8-ByteArray"                 $ nf (distance_ByteArray_simd8 ba1) ba2
+                    , bench "simd8'-ByteArray"                 $ nf (distance_ByteArray_simd8' ba1) ba2
+                    , bench "simd16-ByteArray"                 $ nf (distance_ByteArray_simd16 ba1) ba2
+                    , bench "simd16'-ByteArray"                 $ nf (distance_ByteArray_simd16' ba1) ba2
+                    ]
+                , bgroup "VU.Vector"
+                    [ bench "diff4-VU.Vector"                 $ nf (distance_Vector_diff4 vu1) vu2
+                    , bench "simd4-VU.Vector"                 $ nf (distance_Vector_simd4 vu1) vu2
+                    , bench "simd8-VU.Vector"                 $ nf (distance_Vector_simd8 vu1) vu2
+                    , bench "simd16-VU.Vector"                $ nf (distance_Vector_simd16 vu1) vu2
+                    ]
+                ]
             ]
         , bgroup "pairwise"
             [ bgroup "diff4"
@@ -301,6 +325,123 @@ distance_Vector_diff4 !v1 !v2 = sqrt $ go 0 (VG.length v1-1)
                 diff3 = v1 `VG.unsafeIndex` (i-2)-v2 `VG.unsafeIndex` (i-2)
                 diff4 = v1 `VG.unsafeIndex` (i-3)-v2 `VG.unsafeIndex` (i-3)
 
+{-# INLINE distance_Vector_simd4 #-}
+distance_Vector_simd4 :: (VG.Vector v Float) => v Float -> v Float -> Float
+distance_Vector_simd4 !v1 !v2 = sqrt $ sum4 (go zeros (VG.length v1-1))
+    where
+        zeros = broadcastFloatX4# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-4)
+            where 
+                tot' = plusFloatX4# tot sqrarr
+                sqrarr = timesFloatX4# minarr minarr
+                minarr = minusFloatX4# arr1 arr2
+
+                arr1 = packFloatX4# (# e1_1, e1_2, e1_3, e1_4 #)
+                arr2 = packFloatX4# (# e2_1, e2_2, e2_3, e2_4 #)
+
+                e1_1 = unFloat $ v1 `VG.unsafeIndex` i
+                e1_2 = unFloat $ v1 `VG.unsafeIndex` (i-1)
+                e1_3 = unFloat $ v1 `VG.unsafeIndex` (i-2)
+                e1_4 = unFloat $ v1 `VG.unsafeIndex` (i-3)
+                e2_1 = unFloat $ v1 `VG.unsafeIndex` i
+                e2_2 = unFloat $ v1 `VG.unsafeIndex` (i-1)
+                e2_3 = unFloat $ v1 `VG.unsafeIndex` (i-2)
+                e2_4 = unFloat $ v1 `VG.unsafeIndex` (i-3)
+
+{-# INLINE distance_Vector_simd8 #-}
+distance_Vector_simd8 :: (VG.Vector v Float) => v Float -> v Float -> Float
+distance_Vector_simd8 !v1 !v2 = sqrt $ sum8 (go zeros (VG.length v1-1))
+    where
+        zeros = broadcastFloatX8# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-8)
+            where 
+                tot' = plusFloatX8# tot sqrarr
+                sqrarr = timesFloatX8# minarr minarr
+                minarr = minusFloatX8# arr1 arr2
+
+                arr1 = packFloatX8# (# e1_1, e1_2, e1_3, e1_4 
+                                    ,  e1_5, e1_6, e1_7, e1_8 #)
+                arr2 = packFloatX8# (# e2_1, e2_2, e2_3, e2_4
+                                    ,  e2_5, e2_6, e2_7, e2_8 #)
+
+                e1_1 = unFloat $ v1 `VG.unsafeIndex` i
+                e1_2 = unFloat $ v1 `VG.unsafeIndex` (i-1)
+                e1_3 = unFloat $ v1 `VG.unsafeIndex` (i-2)
+                e1_4 = unFloat $ v1 `VG.unsafeIndex` (i-3)
+                e1_5 = unFloat $ v1 `VG.unsafeIndex` (i-4)
+                e1_6 = unFloat $ v1 `VG.unsafeIndex` (i-5)
+                e1_7 = unFloat $ v1 `VG.unsafeIndex` (i-6)
+                e1_8 = unFloat $ v1 `VG.unsafeIndex` (i-7)
+
+                e2_1 = unFloat $ v2 `VG.unsafeIndex` i
+                e2_2 = unFloat $ v2 `VG.unsafeIndex` (i-1)
+                e2_3 = unFloat $ v2 `VG.unsafeIndex` (i-2)
+                e2_4 = unFloat $ v2 `VG.unsafeIndex` (i-3)
+                e2_5 = unFloat $ v2 `VG.unsafeIndex` (i-4)
+                e2_6 = unFloat $ v2 `VG.unsafeIndex` (i-5)
+                e2_7 = unFloat $ v2 `VG.unsafeIndex` (i-6)
+                e2_8 = unFloat $ v2 `VG.unsafeIndex` (i-7)
+
+{-# INLINE distance_Vector_simd16 #-}
+distance_Vector_simd16 :: (VG.Vector v Float) => v Float -> v Float -> Float
+distance_Vector_simd16 !v1 !v2 = sqrt $ sum16 (go zeros (VG.length v1-1))
+    where
+        zeros = broadcastFloatX16# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-16)
+            where 
+                tot' = plusFloatX16# tot sqrarr
+                sqrarr = timesFloatX16# minarr minarr
+                minarr = minusFloatX16# arr1 arr2
+
+                arr1 = packFloatX16# (# e1_1,  e1_2,  e1_3,  e1_4 
+                                     ,  e1_5,  e1_6,  e1_7,  e1_8 
+                                     ,  e1_9,  e1_10, e1_11, e1_12
+                                     ,  e1_13, e1_14, e1_15, e1_16 #)
+                arr2 = packFloatX16# (# e2_1,  e2_2,  e2_3,  e2_4
+                                     ,  e2_5,  e2_6,  e2_7,  e2_8 
+                                     ,  e2_9,  e2_10, e2_11, e2_12
+                                     ,  e2_13, e2_14, e2_15, e2_16 #)
+
+                e1_1 = unFloat $ v1 `VG.unsafeIndex` i
+                e1_2 = unFloat $ v1 `VG.unsafeIndex` (i-1)
+                e1_3 = unFloat $ v1 `VG.unsafeIndex` (i-2)
+                e1_4 = unFloat $ v1 `VG.unsafeIndex` (i-3)
+                e1_5 = unFloat $ v1 `VG.unsafeIndex` (i-4)
+                e1_6 = unFloat $ v1 `VG.unsafeIndex` (i-5)
+                e1_7 = unFloat $ v1 `VG.unsafeIndex` (i-6)
+                e1_8 = unFloat $ v1 `VG.unsafeIndex` (i-7)
+                e1_9 = unFloat $ v1 `VG.unsafeIndex` (i-8)
+                e1_10 = unFloat $ v1 `VG.unsafeIndex` (i-9)
+                e1_11 = unFloat $ v1 `VG.unsafeIndex` (i-10)
+                e1_12 = unFloat $ v1 `VG.unsafeIndex` (i-11)
+                e1_13 = unFloat $ v1 `VG.unsafeIndex` (i-12)
+                e1_14 = unFloat $ v1 `VG.unsafeIndex` (i-13)
+                e1_15 = unFloat $ v1 `VG.unsafeIndex` (i-14)
+                e1_16 = unFloat $ v1 `VG.unsafeIndex` (i-15)
+
+                e2_1 = unFloat $ v2 `VG.unsafeIndex` i
+                e2_2 = unFloat $ v2 `VG.unsafeIndex` (i-1)
+                e2_3 = unFloat $ v2 `VG.unsafeIndex` (i-2)
+                e2_4 = unFloat $ v2 `VG.unsafeIndex` (i-3)
+                e2_5 = unFloat $ v2 `VG.unsafeIndex` (i-4)
+                e2_6 = unFloat $ v2 `VG.unsafeIndex` (i-5)
+                e2_7 = unFloat $ v2 `VG.unsafeIndex` (i-6)
+                e2_8 = unFloat $ v2 `VG.unsafeIndex` (i-7)
+                e2_9 = unFloat $ v2 `VG.unsafeIndex` (i-8)
+                e2_10 = unFloat $ v2 `VG.unsafeIndex` (i-9)
+                e2_11 = unFloat $ v2 `VG.unsafeIndex` (i-10)
+                e2_12 = unFloat $ v2 `VG.unsafeIndex` (i-11)
+                e2_13 = unFloat $ v2 `VG.unsafeIndex` (i-12)
+                e2_14 = unFloat $ v2 `VG.unsafeIndex` (i-13)
+                e2_15 = unFloat $ v2 `VG.unsafeIndex` (i-14)
+                e2_16 = unFloat $ v2 `VG.unsafeIndex` (i-15)
+
 ---------------------------------------
 
 list2ByteArray xs = runST $ do
@@ -334,3 +475,133 @@ distance_ByteArray_diff4 !a1 !a2 = sqrt $ go 0 (veclen-1)
                 diff2 = (a1 `indexByteArray` (i-1))-(a2 `indexByteArray` (i-1))
                 diff3 = (a1 `indexByteArray` (i-3))-(a2 `indexByteArray` (i-3))
                 diff4 = (a1 `indexByteArray` (i-4))-(a2 `indexByteArray` (i-4))
+
+{-# INLINE distance_ByteArray_simd4 #-}
+distance_ByteArray_simd4 :: ByteArray -> ByteArray -> Float
+distance_ByteArray_simd4 !(ByteArray ba1#) !(ByteArray ba2#) = sqrt $ sum4 (go zeros (veclen-1))
+    where
+        zeros = broadcastFloatX4# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-4)
+            where 
+                tot' = plusFloatX4# tot sqrarr
+                sqrarr = timesFloatX4# minarr minarr
+                minarr = minusFloatX4# arr1 arr2
+
+                arr1 = indexFloatArrayAsFloatX4# ba1# (unInt i)
+                arr2 = indexFloatArrayAsFloatX4# ba2# (unInt i)
+
+{-# INLINE distance_ByteArray_simd8 #-}
+distance_ByteArray_simd8 :: ByteArray -> ByteArray -> Float
+distance_ByteArray_simd8 !(ByteArray ba1#) !(ByteArray ba2#) = sqrt $ sum8 (go zeros (veclen-1))
+    where
+        zeros = broadcastFloatX8# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-8)
+            where 
+                tot' = plusFloatX8# tot sqrarr 
+                sqrarr = timesFloatX8# minarr minarr
+                minarr = minusFloatX8# arr1 arr2
+
+                arr1 = indexFloatArrayAsFloatX8# ba1# (unInt i)
+                arr2 = indexFloatArrayAsFloatX8# ba2# (unInt i)
+
+{-# INLINE distance_ByteArray_simd8' #-}
+distance_ByteArray_simd8' :: ByteArray -> ByteArray -> Float
+distance_ByteArray_simd8' !(ByteArray ba1#) !(ByteArray ba2#) = sqrt $ sum8' (go zeros (veclen-1))
+    where
+        zeros = broadcastFloatX8# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-8)
+            where 
+                tot' = plusFloatX8# tot sqrarr 
+                sqrarr = timesFloatX8# minarr minarr
+                minarr = minusFloatX8# arr1 arr2
+
+                arr1 = indexFloatArrayAsFloatX8# ba1# (unInt i)
+                arr2 = indexFloatArrayAsFloatX8# ba2# (unInt i)
+
+{-# INLINE distance_ByteArray_simd16 #-}
+distance_ByteArray_simd16 :: ByteArray -> ByteArray -> Float
+distance_ByteArray_simd16 !(ByteArray ba1#) !(ByteArray ba2#) = sqrt $ sum16 (go zeros (veclen-1))
+    where
+        zeros = broadcastFloatX16# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-16)
+            where 
+                tot' = plusFloatX16# tot sqrarr 
+                sqrarr = timesFloatX16# minarr minarr
+                minarr = minusFloatX16# arr1 arr2
+
+                arr1 = indexFloatArrayAsFloatX16# ba1# (unInt i)
+                arr2 = indexFloatArrayAsFloatX16# ba2# (unInt i)
+
+{-# INLINE distance_ByteArray_simd16' #-}
+distance_ByteArray_simd16' :: ByteArray -> ByteArray -> Float
+distance_ByteArray_simd16' !(ByteArray ba1#) !(ByteArray ba2#) = sqrt $ sum16' (go zeros (veclen-1))
+    where
+        zeros = broadcastFloatX16# (unFloat 0)
+
+        go tot (-1) = tot
+        go tot i = go tot' (i-16)
+            where 
+                tot' = plusFloatX16# tot sqrarr 
+                sqrarr = timesFloatX16# minarr minarr
+                minarr = minusFloatX16# arr1 arr2
+
+                arr1 = indexFloatArrayAsFloatX16# ba1# (unInt i)
+                arr2 = indexFloatArrayAsFloatX16# ba2# (unInt i)
+
+-------
+
+{-# INLINE unFloat #-}
+unFloat :: Float -> Float#
+unFloat (F# f) = f
+
+{-# INLINE unInt #-}
+unInt :: Int -> Int#
+unInt (I# i) = i
+
+{-# INLINE sum4 #-}
+sum4 :: FloatX4# -> Float
+sum4 arr = F# r1 + F# r2 + F# r3 + F# r4
+    where
+        (# r1, r2, r3, r4 #) = unpackFloatX4# arr
+
+{-# INLINE sum8 #-}
+sum8 :: FloatX8# -> Float
+sum8 arr = F# r1 + F# r2 + F# r3 + F# r4
+         + F# r5 + F# r6 + F# r7 + F# r8
+    where
+        (# r1, r2, r3, r4, r5, r6, r7, r8 #) = unpackFloatX8# arr
+
+{-# INLINE sum8' #-}
+sum8' :: FloatX8# -> Float
+sum8' arr = sum4 a1 + sum4 a2
+    where
+        a1 = packFloatX4# (# r1, r2, r3, r4 #)
+        a2 = packFloatX4# (# r5, r6, r7, r8 #) 
+        (# r1, r2, r3, r4, r5, r6, r7, r8 #) = unpackFloatX8# arr
+
+{-# INLINE sum16 #-}
+sum16 :: FloatX16# -> Float
+sum16 arr = F# r1 + F# r2 + F# r3 + F# r4
+          + F# r5 + F# r6 + F# r7 + F# r8
+          + F# r9 + F# r10+ F# r11+ F# r12
+          + F# r13+ F# r14+ F# r15+ F# r16
+    where
+        (# r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16 #) = 
+                unpackFloatX16# arr
+
+{-# INLINE sum16' #-}
+sum16' :: FloatX16# -> Float
+sum16' arr = sum8' a1 + sum8' a2
+    where
+        a1 = packFloatX8# (# r1, r2, r3, r4, r5, r6, r7, r8 #)
+        a2 = packFloatX8# (# r9, r10, r11, r12, r13, r14, r15, r16 #)
+        (# r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15, r16 #) = 
+                unpackFloatX16# arr
