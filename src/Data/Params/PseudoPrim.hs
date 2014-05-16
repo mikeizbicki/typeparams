@@ -1,9 +1,14 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module Data.Params.PseudoPrim
     where
 
 import GHC.Base (Int (..))
 import GHC.Int
 import GHC.Prim
+import Data.Word
 
 import Control.Monad.Primitive
 import Data.Primitive
@@ -22,19 +27,25 @@ class PseudoPrim a where
     seqInfo :: a -> Bool
     emptyInfo :: PseudoPrimInfo a
 
-unInt2 :: Int -> Int#
-unInt2 (I# i) = i
+#define mkPseudoPrim(t,ppi) \
+instance PseudoPrim t where\
+    newtype PseudoPrimInfo t = ppi ()               ;\
+    pp_sizeOf# a = sizeOf# (undefined :: t)         ;\
+    pp_alignment# a = alignment# (undefined :: t)   ;\
+    pp_indexByteArray# a = indexByteArray#          ;\
+    pp_readByteArray# _ = readByteArray#            ;\
+    pp_writeByteArray# _ = writeByteArray#          ;\
+    seqInfo _ = False                               ;\
+    emptyInfo = ppi ()               
 
-instance PseudoPrim Int where
-    newtype PseudoPrimInfo Int = PseudoPrimInfo_Int ()
-    pp_sizeOf# _ = unInt2 8 -- sizeOf# (undefined::Int)
-    pp_alignment# _ = unInt2 8 -- alignment# (undefined::Int)
-    pp_indexByteArray# _ = indexByteArray#
-    pp_readByteArray# _ = readByteArray#
-    pp_writeByteArray# _ = writeByteArray#
-
-    seqInfo _ = False
-    emptyInfo = PseudoPrimInfo_Int ()
+mkPseudoPrim(Double,PseudoPrimInfo_Double)
+mkPseudoPrim(Float,PseudoPrimInfo_Float)
+mkPseudoPrim(Int,PseudoPrimInfo_Int)
+mkPseudoPrim(Char,PseudoPrimInfo_Char)
+mkPseudoPrim(Word8,PseudoPrimInfo_Word8)
+mkPseudoPrim(Word16,PseudoPrimInfo_Word16)
+mkPseudoPrim(Word32,PseudoPrimInfo_Word32)
+mkPseudoPrim(Word64,PseudoPrimInfo_Word64)
 
 -------------------------------------------------------------------------------
 -- helper functions

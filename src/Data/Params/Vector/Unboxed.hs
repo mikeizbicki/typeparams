@@ -3,15 +3,15 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE CPP #-}
--- {-# LANGUAGE AllowAmbiguousTypes #-}
--- {-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE PolyKinds #-}
 module Data.Params.Vector.Unboxed
     where
 
 import Control.Monad
 import Control.Monad.Primitive
+import Control.Monad.Random
 import Control.DeepSeq
--- import Data.Primitive
+import Data.Primitive
 import Data.Primitive.ByteArray
 -- import Data.Primitive.Types
 -- import GHC.Ptr
@@ -59,7 +59,26 @@ data instance Vector (Static len) elem = Vector
     {-#UNPACK#-}!ByteArray
 mkParams ''Vector
 
-u :: Vector (Static 1) (Vector (Static 10) Int)
+type Veclen = 20
+type Numvec = 100
+veclen=fromIntegral $ natVal (Proxy::Proxy Veclen)
+numvec=fromIntegral $ natVal (Proxy::Proxy Numvec)
+
+dimLL1 :: [[Float]] = 
+            [ evalRand (replicateM veclen $ getRandomR (-10000,10000)) (mkStdGen i) | i <- [1..numvec]]
+
+dimLL2 :: [[Float]] = 
+            [ evalRand (replicateM veclen $ getRandomR (-10000,10000)) (mkStdGen i) | i <- [2..numvec+1]]
+
+vpusvpus1 = (VG.fromList $ map VG.fromList dimLL1
+    :: Vector (Static Numvec) (Vector (Static Veclen) Float))
+vpusvpus2 = (VG.fromList $ map VG.fromList dimLL2
+    :: Vector (Static Numvec) (Vector (Static Veclen) Float))
+
+vpusvpua1 = ss2sa vpusvpus1
+
+
+u :: Vector (Static 1) (Vector (Static 10) Float)
 u = VG.singleton $ VG.fromList [1..10] 
 
 -- u' :: Vector (Static 1) (Vector RunTime Int)
@@ -251,6 +270,46 @@ unInt :: Int -> Int#
 unInt (I# i) = i
 
 instance
+    ( Prim elem
+    , PseudoPrim elem
+    , KnownNat len
+    ) => Prim (Vector (Static len) elem)
+        where
+    
+    {-# INLINE sizeOf# #-}
+    sizeOf# _ = 
+        unInt (sizeOf (undefined::elem)* (intparam (Proxy::Proxy len)))
+
+    {-# INLINE alignment# #-}
+    alignment# _ = 
+        unInt (alignment (undefined :: elem))
+--         unInt (sizeOf ppi * (intparam (Proxy::Proxy len)))
+
+    {-# INLINE indexByteArray# #-}
+    indexByteArray# arr# i# = 
+        Vector ((I# i#)*(intparam (Proxy::Proxy len))) (emptyInfo::PseudoPrimInfo elem) (ByteArray arr#)
+
+    {-# INLINE readByteArray# #-}
+    readByteArray# marr# i# s# = 
+        (# s#, Vector (I# i#) (emptyInfo::PseudoPrimInfo elem) (ByteArray (unsafeCoerce# marr#)) #)
+
+    {-# INLINE writeByteArray# #-}
+    writeByteArray# marr# i# x s# = go 0 s#
+        where
+            go i s = ( if i >= intparam (Proxy::Proxy len)
+                then s
+                else go (i+1) 
+                        (writeByteArray# marr# 
+                            (i# *# (unInt ( intparam (Proxy::Proxy len))) +# (unInt i)) 
+--                             (x VG.! i)
+                            (x `VG.unsafeIndex` i)
+                            s
+                        )
+                    )
+                where 
+                    iii = I# (i# *# (sizeOf# (undefined::elem)) +# (unInt i)) 
+
+instance
     ( PseudoPrim elem
     , KnownNat len
     , Show elem
@@ -285,7 +344,8 @@ instance
                 else go (i+1) 
                         (pp_writeByteArray# ppi marr# 
                             (i# *# (unInt ( intparam (Proxy::Proxy len))) +# (unInt i)) 
-                            (x VG.! i)
+--                             (x VG.! i)
+                            (x `VG.unsafeIndex` i)
                             s
                         )
                     )
@@ -458,6 +518,9 @@ data instance Vector Automatic elem = Vector_Automatic
     {-#UNPACK#-}!(PseudoPrimInfo elem)
     {-#UNPACK#-}!ByteArray
 
+instance NFData (Vector Automatic elem) where
+    rnf v = seq v ()
+
 instance PseudoPrim elem => VG.Vector (Vector Automatic) elem where
 
     {-# INLINE basicUnsafeFreeze #-}
@@ -486,16 +549,28 @@ instance PseudoPrim elem => VG.Vector (Vector Automatic) elem where
     {-# INLINE elemseq #-}
     elemseq _ = seq
 
-magic :: forall len len2.
+ss2sa :: forall len len2 elem.
     ( KnownNat len
     , KnownNat len2
---     , PseudoPrim elem
-    ) => Vector (Static len) (Vector (Static len2) Int)
-      -> Vector (Static len) (Vector Automatic Int)
-magic (Vector i ppi arr) = Vector i (PseudoPrimInfo_VectorAutomatic j n emptyInfo) arr
+    , PseudoPrim elem
+    ) => Vector (Static len) (Vector (Static len2) elem)
+      -> Vector (Static len) (Vector Automatic elem)
+ss2sa (Vector i ppi arr) = Vector i (PseudoPrimInfo_VectorAutomatic j n emptyInfo) arr
     where
         j = fromIntegral $ natVal (Proxy::Proxy len2)
-        n = j*pp_sizeOf (emptyInfo::PseudoPrimInfo Int)
+        n = j*pp_sizeOf (emptyInfo::PseudoPrimInfo elem)
+
+ss2aa :: forall len len2 elem.
+    ( KnownNat len
+    , KnownNat len2
+    , PseudoPrim elem
+    ) => Vector (Static len) (Vector (Static len2) elem)
+      -> Vector Automatic (Vector Automatic elem)
+ss2aa (Vector off ppi arr) = Vector_Automatic off i (PseudoPrimInfo_VectorAutomatic j n emptyInfo) arr
+    where
+        i = fromIntegral $ natVal (Proxy::Proxy len)
+        j = fromIntegral $ natVal (Proxy::Proxy len2)
+        n = j*pp_sizeOf (emptyInfo::PseudoPrimInfo elem)
 
 instance PseudoPrim elem => PseudoPrim (Vector Automatic elem) where
     data PseudoPrimInfo (Vector Automatic elem) = PseudoPrimInfo_VectorAutomatic
@@ -566,7 +641,7 @@ instance
     
     {-# INLINE basicUnsafeSlice #-}
     basicUnsafeSlice i m v = if m /= len
-        then error $ "MVector.basicUnsafeSlice not allowed to change size"
+        then error $ "MVector (Static len) .basicUnsafeSlice not allowed to change size"
             ++"; i="++show i
             ++"; m="++show m
             ++"; len="++show len 

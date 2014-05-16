@@ -527,8 +527,8 @@ mkParamInstance paramStr paramType dataName  = do
 
 -- | Creates classes of the form
 --
--- > class Param_paramname m where
--- >     param_paramname :: m -> paramT
+-- > class GetParam_paramname m where
+-- >     getParam_paramname :: m -> paramT
 --
 mkParamClass :: String -> Type -> Q [Dec]
 mkParamClass paramname paramT = do
@@ -648,11 +648,16 @@ mkReifiableConstraint paramStr = do
 --
 mkReifiableConstraint' :: Name -> [Dec] -> Q [Dec] 
 mkReifiableConstraint' c funcL = do
-    isDef <- lookupValueName $ "Def_"++nameBase c
-    return $ case isDef of
-        Just x -> []
-        Nothing -> 
-            [ InstanceD 
+--     isDef <- lookupValueName $ {-"Def_"++-}nameBase c
+--     isDef <- lookupTypeName $ {-"Def_"++-}nameBase c
+--     isDef <- reifyInstances (mkName "ReifiableConstraint") [ConT c]
+    isDef <- isInstance (mkName "ReifiableConstraint") [ConT c]
+--     return $ case isDef of
+--         Just x -> []
+--         Nothing -> 
+    return $ if isDef
+        then []
+        else [ InstanceD 
                 []
                 (AppT (ConT $ mkName "ReifiableConstraint") (ConT c))
 --                 [ DataInstD 
@@ -660,7 +665,7 @@ mkReifiableConstraint' c funcL = do
                     []
                     (mkName "Def")
                     [ ConT c, VarT tyVar]
-                    ( RecC 
+                    ( trace ("xx="++show ("Def_"++nameBase c)) $ RecC 
                         (mkName $ "Def_"++nameBase c) 
                         [ (mkName $ nameBase fname ++ "_", NotStrict, insertTyVar (tyVar) ftype) 
                             | SigD fname ftype <- funcL

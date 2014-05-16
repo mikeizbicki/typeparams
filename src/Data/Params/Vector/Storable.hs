@@ -3,7 +3,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE PolyKinds #-}
 
 -- | Efficient vectors requiring a storable instance for the elements.
 -- These vectors can be considerably faster than unboxed vectors in 

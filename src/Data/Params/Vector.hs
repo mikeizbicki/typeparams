@@ -7,6 +7,7 @@ module Data.Params.Vector
     ValidVector (..)
     , GetParam_len (..)
     , WithParam_len (..)
+    , Def (..)
 
     -- * Modules
 --     , module VG
@@ -24,6 +25,7 @@ import qualified Data.Vector.Generic.Mutable as VGM
 import Data.Params
 
 mkParamClass "len" (ConT ''Int)
+mkReifiableConstraint "len"
 mkWithParamClass "len" (ConT ''Int)
 
 type ValidVector vec elem = (GetParam_len (vec elem), VG.Vector vec elem)

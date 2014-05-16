@@ -37,6 +37,7 @@ import GHC.Int
 import GHC.Prim
 import GHC.TypeLits
 import Data.Params
+import Data.Params.Vector
 
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector

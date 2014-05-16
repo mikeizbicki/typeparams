@@ -24,10 +24,12 @@ Library
         reflection          >= 1.3,
         constraints         >= 0.3.4,
 
+        primitive           >= 0.5,
+        ghc-prim            ,
+
         -- examples
         vector              >= 0.10,
-        primitive           >= 0.5,
-        ghc-prim            
+        MonadRandom         >= 0.1.13
         
     hs-source-dirs:     
         src
@@ -40,8 +42,10 @@ Library
     Exposed-modules:
         Data.Params
         Data.Params.Frac
+        Data.Params.PseudoPrim
         Data.Params.Vector
         Data.Params.Vector.Storable
+        Data.Params.Vector.StorableRaw
         Data.Params.Vector.Unboxed
         Data.Params.Vector.UnboxedRaw
 
