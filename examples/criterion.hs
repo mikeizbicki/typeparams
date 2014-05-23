@@ -1,3 +1,4 @@
+{-# OPTION_GHC -O2 -fllvm #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}

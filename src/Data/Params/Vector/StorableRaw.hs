@@ -100,12 +100,6 @@ instance
 -------------------
 -- storable instance allows us to make vectors of vectors
 
--- class PseudoStorable a where
---     psizeOf :: a -> Int
---     palignment :: a -> Int
---     ppeek :: Ptr a -> IO a
---     ppoke :: Ptr a -> a -> IO ()
-
 instance 
     ( Storable elem
     , KnownNat len
@@ -122,6 +116,9 @@ instance
 
     {-# INLINE peek #-}
     peek p = return $ Vector $ castPtr p
+
+    {-# INLINE peekElemOff #-}
+    peekElemOff p i = return $ Vector $ (castPtr p) `advancePtr` i
 
     {-# INLINE poke #-}
     poke p (Vector q) = unsafePrimToPrim
