@@ -78,10 +78,20 @@ vpusvpus1 = (VG.fromList $ map VG.fromList dimLL1
 vpusvpus2 = (VG.fromList $ map VG.fromList dimLL2
     :: Vector (Static Numvec) (Vector (Static Veclen) Float))
 
-vpusvpua1 = ss2sa vpusvpus1
-
 v :: Vector (Static 1) (Vector (Static 1) (Vector (Static 10) Float))
 v = VG.singleton $ VG.singleton $ VG.fromList [1..10] 
+
+v' :: Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))
+v' = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
+
+v'' :: Vector (Static 1) (Vector (Static 1) (Vector Automatic Float))
+v'' = runTimeToAutomatic (_elem._elem._len) 10 v'
+
+-- v'' = mkWith1Param 
+--     (Proxy::Proxy (Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))))
+--     (_elem._elem._len)
+--     10
+--     (VG.singleton $ VG.singleton $ VG.fromList [1..10])
 
 u :: Vector (Static 1) (Vector (Static 10) Float)
 u = VG.singleton $ VG.fromList [1..10] 
@@ -110,40 +120,17 @@ u'' = with1Param (_elem._len) 10 $ VG.singleton $ VG.fromList [1..10]
 
 ---------
 
--- data family ParamDict (p1::k1) (p2::k2) m1 m2
--- data family ParamDict (p:: * -> Constraint) m
-
 newtype DummyNewtype a = DummyNewtype a
 
--- type family ApplyConstraint (p::k) m :: Constraint where
---     ApplyConstraint (ApplyConstraintTo_elem p) (Vector len elem) = p elem
---     ApplyConstraint p m = p m
--- -- type instance ApplyConstraint p m = p m
--- -- type instance ApplyConstraint (ApplyConstraintTo_elem p) (Vector len elem) = p elem
-
-type ApplyConstraint p m = (GetConstraint p) (GetType p m)
-
-type family GetConstraint (p::k) :: * -> Constraint where
---     GetConstraint p = p
---     GetConstraint (ApplyConstraintTo_elem p) = p
-    GetConstraint (ApplyConstraintTo_elem p) = p 
-    GetConstraint p = p
-
-type family GetType (p::k) t :: * where
-    GetType (ApplyConstraintTo_elem p) (Vector len elem) = GetType p elem
-    GetType p m = m
-
-instance (ReifiableConstraint p) => ReifiableConstraint (ApplyConstraintTo_elem p) where
-    newtype Def (ApplyConstraintTo_elem p) a = ParamA { paramA_ :: Def p a }
-    reifiedIns = undefined -- Sub Dict
-
--- mkWith1Param :: proxy m -> (
---     ( ReifiableConstraint (GetConstraint p)
---     )  => ParamDict p m
---        -> (ApplyConstraint p m => m)
---        -> m
---        )
--- mkWith1Param _ = with1Param
+mkWith1Param :: proxy m -> (
+    ( ReifiableConstraint (GetConstraint p)
+    , HasDictionary p
+    ) => TypeLens Base p
+      -> ParamType p
+      -> (ApplyConstraint p m => m)
+      -> m
+      )
+mkWith1Param _ = with1Param
 
 with1Param :: forall p m.
     ( ReifiableConstraint (GetConstraint p)
@@ -194,87 +181,101 @@ apWith1Param lens v = flip $ apUsing'
 
 -------------------
 
-ss2sa :: forall len len2 elem.
-    ( KnownNat len
-    , KnownNat len2
-    , PseudoPrim elem
-    ) => Vector (Static len) (Vector (Static len2) elem)
-      -> Vector (Static len) (Vector Automatic elem)
-ss2sa (Vector i ppi arr) = Vector i (PseudoPrimInfo_VectorAutomatic j n emptyInfo) arr
-    where
-        j = fromIntegral $ natVal (Proxy::Proxy len2)
-        n = j*pp_sizeOf (emptyInfo::PseudoPrimInfo elem)
+class StaticToAutomatic p ts ta | p ts -> ta where
+    staticToAutomatic :: TypeLens Base p -> ts -> ta
+    mkPseudoPrimInfoFromStatic :: TypeLens Base p -> PseudoPrimInfo ts -> PseudoPrimInfo ta
 
-ss2aa :: forall len len2 elem.
+instance
     ( KnownNat len
-    , KnownNat len2
     , PseudoPrim elem
-    ) => Vector (Static len) (Vector (Static len2) elem)
-      -> Vector Automatic (Vector Automatic elem)
-ss2aa (Vector off ppi arr) = Vector_Automatic off i (PseudoPrimInfo_VectorAutomatic j n emptyInfo) arr
-    where
-        i = fromIntegral $ natVal (Proxy::Proxy len)
-        j = fromIntegral $ natVal (Proxy::Proxy len2)
-        n = j*pp_sizeOf (emptyInfo::PseudoPrimInfo elem)
+    ) => StaticToAutomatic 
+        GetParam_len 
+        (Vector (Static len) elem)
+        (Vector Automatic elem)
+        where
+    
+    staticToAutomatic _ (Vector off ppi arr) = Vector_Automatic off len ppi arr
+        where
+            len = fromIntegral $ natVal (Proxy::Proxy len)
+
+    mkPseudoPrimInfoFromStatic _ (PseudoPrimInfo_VectorStatic ppi) 
+        = PseudoPrimInfo_VectorAutomatic len (len*size) ppi
+        where
+            len = fromIntegral $ natVal (Proxy::Proxy len)
+            size = pp_sizeOf ppi
+
+instance
+    ( KnownNat len 
+    , StaticToAutomatic p elem elem'
+    ) => StaticToAutomatic
+        (ApplyConstraintTo_elem p)
+        (Vector (Static len) elem)
+        (Vector (Static len) elem')
+        where
+    
+    staticToAutomatic _ (Vector off ppi arr) = Vector off ppi' arr
+        where
+            ppi' = mkPseudoPrimInfoFromStatic (TypeLens::TypeLens Base p) ppi
+
+    mkPseudoPrimInfoFromStatic _ (PseudoPrimInfo_VectorStatic ppi)
+        = PseudoPrimInfo_VectorStatic $ mkPseudoPrimInfoFromStatic (TypeLens :: TypeLens Base p) ppi 
+
+class RunTimeToAutomatic p tr ta | p tr -> ta, p ta -> tr where
+    runTimeToAutomatic :: TypeLens Base p -> ParamType p -> (ApplyConstraint p tr => tr) -> ta
+    mkPseudoPrimInfoFromRuntime :: TypeLens Base p -> ParamType p -> PseudoPrimInfo tr -> PseudoPrimInfo ta
+
+instance
+    ( PseudoPrim elem
+    ) => RunTimeToAutomatic
+        GetParam_len
+        (Vector RunTime elem)
+        (Vector Automatic elem)
+        where
+    
+    runTimeToAutomatic lens p v = mkApWith1Param 
+        (Proxy::Proxy (Vector RunTime elem))
+        (Proxy::Proxy (Vector Automatic elem))
+        lens 
+        p
+        go
+        v
+        where
+            go v@(Vector_RunTime off ppi arr) = Vector_Automatic off len ppi arr
+                where
+                    ppi' = undefined
+                    len = VG.length v
+
+    mkPseudoPrimInfoFromRuntime _ len (PseudoPrimInfo_VectorRunTime ppi) 
+        = PseudoPrimInfo_VectorAutomatic len (len*pp_sizeOf ppi) ppi
+
+instance
+    ( RunTimeToAutomatic p elem elem'
+    , HasDictionary p
+    , ReifiableConstraint (GetConstraint p)
+    ) => RunTimeToAutomatic
+        (ApplyConstraintTo_elem p)
+        (Vector (Static len) elem)
+        (Vector (Static len) elem')
+        where
+
+    runTimeToAutomatic lens p v = mkApWith1Param
+        (Proxy::Proxy (Vector (Static len) elem))
+        (Proxy::Proxy (Vector (Static len) elem'))
+        lens
+        p
+        go
+        v
+        where
+            go :: Vector (Static len) elem -> Vector (Static len) elem'
+            go (Vector off ppi arr) = Vector off ppi' arr
+                where 
+                    ppi' = mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi
+                        :: PseudoPrimInfo elem'
+
+    mkPseudoPrimInfoFromRuntime _ p (PseudoPrimInfo_VectorStatic ppi)
+        = PseudoPrimInfo_VectorStatic $ mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi
 
 -------------------
-
----
-
-
--- class ViewParam p1 p2 m1 m2 where
---     viewParam :: (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m1 -> ParamType p2
-
--- type TypeLens' s t = forall (p1 :: * -> Constraint) (p2 :: * -> Constraint) m2. 
---     ParamDict p1 p2 t m2 -> ParamDict (HasGetter p1 s) p2 s m2
--- 
--- class HasGetter loc s t where
---     getGetter :: proxy loc -> (t -> a) -> s -> a
-
--- class StaticToAutomatic p1 p2 m1 m2 t | p1 p2 m1 m2 -> t where
---     staticToAutomatic :: (ParamType p2 -> ParamDict p1 p2 m1 m2) -> m1 -> t
--- 
--- instance 
---     ( KnownNat len
---     ) => StaticToAutomatic 
---         GetParam_len 
---         GetParam_len 
---         (Vector (Static len) elem) 
---         (Vector (Static len) elem) 
---         (Vector Automatic elem)
---         where
--- 
---     staticToAutomatic _ (Vector off ppi arr) = Vector_Automatic off len ppi arr
---         where
---             len = fromIntegral $ natVal (Proxy::Proxy len)
--- 
--- instance 
---     ( StaticToAutomatic p p elem elem elem'
---     ) => StaticToAutomatic 
---         (ApplyConstraintTo_elem p (Vector (Static len) elem))
---         p
---         (Vector (Static len) elem) 
---         elem
---         (Vector (Static len) elem')
---     where
---     
---     staticToAutomatic _ (Vector off ppi arr) = Vector off ppi' arr
---         where
---             ppi' = undefined
-
--- newtype TypeLens p t = TypeLens (ParamType p -> ParamDict p t)
--- type TypeLens p t = ParamType p -> ParamDict p t
--- type TypeLens p t = (TypeLensChain p t -> ParamDict p t)
-
--- data TypeLens p t = TypeLens
--- 
--- _len :: TypeLens HasParam_len t
--- _len = TypeLens
--- 
--- _elem :: TypeLens HasParam_elem t
--- _elem = TypeLens
-
--- data TypeLens (a::ka) (b::kb) = TypeLens
 
 data TypeLens (a:: * -> Constraint) (b:: * -> Constraint) = TypeLens
 
@@ -283,12 +284,6 @@ instance Category TypeLens where
     a.b = TypeLens
     
 class Base a 
-
-_len :: TypeLens Base GetParam_len
-_len = TypeLens
-
-_elem :: TypeLens p (ApplyConstraintTo_elem p)
-_elem = TypeLens
 
 data family ParamDict (p::k)
 
@@ -302,7 +297,20 @@ class ViewParam p t where
 coerceParamDict :: (ParamType p -> ParamDict p) -> (ParamType p -> ParamDict (a p))
 coerceParamDict = unsafeCoerce
 
+type ApplyConstraint p m = (GetConstraint p) (GetType p m)
+
+type family GetConstraint (p::k) :: * -> Constraint 
+type instance GetConstraint (ApplyConstraintTo_elem p) = GetConstraint p 
+type instance GetConstraint GetParam_len = GetParam_len
+
+type family GetType (p::k) t :: * 
+type instance GetType (ApplyConstraintTo_elem p) (Vector len elem) = GetType p elem
+type instance GetType GetParam_len m = m
+
 -- len
+
+_len :: TypeLens Base GetParam_len
+_len = TypeLens
 
 instance HasDictionary GetParam_len  where
     type ParamType GetParam_len = Int
@@ -317,6 +325,9 @@ newtype instance ParamDict GetParam_len  =
     ParamDict_Vector_len { getParamDict_Vector_len :: Int }
 
 -- elem
+
+_elem :: TypeLens p (ApplyConstraintTo_elem p)
+_elem = TypeLens
 
 instance 
     ( HasDictionary p
@@ -358,6 +369,13 @@ newtype instance ParamDict (ApplyConstraintTo_elem p) =
 
 _left :: TypeLens p (ApplyConstraintTo_a p)
 _left = TypeLens
+
+instance 
+    ( HasDictionary p
+    ) => HasDictionary (ApplyConstraintTo_a p)
+        where
+    type ParamType (ApplyConstraintTo_a p) = ParamType p
+    typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
 
 class ApplyConstraintTo_a (p :: * -> Constraint) t 
 instance p a => ApplyConstraintTo_a p (Either a b) 
@@ -408,11 +426,11 @@ type instance SetParam (ApplyConstraintTo_a q) a' (Either a b) = Either a' b
 --     efmap _ f (Left a) = Left (f a)
 --     efmap _ f (Right b) = Right b
 
-instance 
-    ( a ~ GetParam p a 
-    ) => EndoFunctor (ApplyConstraintTo_a p) (Either a b)  where
-    efmap _ f (Left a) = Left (efmap (TypeLens::TypeLens q p) f a)
-    efmap _ f (Right b) = Right b
+-- instance 
+--     ( a ~ GetParam p a 
+--     ) => EndoFunctor (ApplyConstraintTo_a p) (Either a b)  where
+--     efmap _ f (Left a) = Left (efmap (TypeLens::TypeLens q p) f a)
+--     efmap _ f (Right b) = Right b
 
 -- instance EndoFunctor HasParam_b (Either a b) where
 --     efmap _ f (Left a) = Left a
@@ -574,48 +592,6 @@ data instance Vector RunTime elem = Vector_RunTime
 instance NFData (Vector RunTime elem) where
     rnf a = seq a ()
 
-
--- type family GetParam (p :: k1) (s :: k2) :: k3
--- type instance GetParam HasParam_elem (Vector len elem) = elem
--- type instance GetParam HasParam_len (Vector RunTime elem) = RunTime
--- type instance GetParam HasParam_len (Vector len elem) = len
--- 
--- type family HasParam (p :: k1) (s :: k2) (t :: k3) :: *
--- type instance HasParam HasParam_elem (Vector len elem) elem' = Vector len elem'
--- type instance HasParam HasParam_len (Vector len elem) len' = Vector len' elem
-
-class {- GetParam loc t ~ RunTime => -} SetConfig loc t t' where -- | loc t s -> t' where
---     setConfig :: proxy loc -> t -> HasParam loc t Automatic
-    setConfig :: proxy loc -> t -> t'
-
--- instance 
---     ( ViewParam' GetParam_len (Vector RunTime elem)
---     , PseudoPrim elem
---     ) => SetConfig HasParam_len (Vector RunTime elem) (Vector Automatic elem)
---         where
---     setConfig _ v = VG.fromList $ VG.toList v
--- 
--- manageParam_len :: PseudoPrim elem => Int -> Vector RunTime elem -> Vector Automatic elem
--- manageParam_len n v = apWith1Param (_len n) (setConfig (Proxy :: Proxy HasParam_len)) v
--- 
--- v5 = manageParam_len 5 v' -- :: Vector (Automatic s0) Int
--- v6 = manageParam_len 6 v' -- :: Vector (Automatic s1) Int
--- vv = VG.zipWith (+) v5 v6
-
--- vv :: forall (s0::Nat) (s1::Nat). Vector (Automatic s0) Int
--- vv = VG.zipWith (+) v5 v6
---     where
---         v5 = manageParam_len 5 v' :: Vector (Automatic s0) Int
---         v6 = manageParam_len 6 v' :: Vector (Automatic s1) Int
-
--- instance 
---     ( PseudoPrim elem 
---     ) => HasParam 
---             GetParam_len 
---             (Vector RunTime elem) 
---             (Vector (Automatic 1) elem) 
---         where
---     setParam p v = VG.fromList $ apWithParam p VG.toList v 
 
 instance 
     ( PseudoPrim elem 

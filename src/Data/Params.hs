@@ -122,6 +122,7 @@ import Language.Haskell.TH hiding (reify)
 import Language.Haskell.TH.Syntax hiding (reify)
 import qualified Language.Haskell.TH as TH
 import Data.Proxy
+import Data.Monoid
 
 import GHC.TypeLits
 import Data.Params.Frac
@@ -733,7 +734,6 @@ mkReifiableConstraint' c funcL = do
 
 -------------------------------------------------------------------------------
 -- test
-{-
 
 data ReflectionTest1 (a::Maybe Nat) = ReflectionTest1 Int 
     deriving (Read,Show,Eq,Ord)
@@ -841,4 +841,3 @@ instance ReifiableConstraint Monoid where
 instance Reifies s (Def Monoid a) => Monoid (ConstraintLift Monoid a s) where
     mappend a b = ConstraintLift $ mappend_ (reflect a) (lower a) (lower b) 
     mempty = a where a = ConstraintLift $ mempty_ (reflect a)
--}
