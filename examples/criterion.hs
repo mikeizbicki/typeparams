@@ -13,7 +13,6 @@ import Control.Monad.Random
 import Control.Monad.ST
 import Criterion.Config
 import Criterion.Main
-import Data.Params
 import Data.Primitive.ByteArray 
 import qualified Data.Vector.Generic as VG
 import qualified Data.Params.Vector.Unboxed as VPU
@@ -28,6 +27,9 @@ import GHC.Float
 import GHC.Int
 import GHC.Base (Int (..))
 import GHC.Prim
+
+import Data.Params
+import Data.Params.Vector
 
 -------------------------------------------------------------------------------
 -- criterion tests
@@ -115,9 +117,9 @@ main = do
     let vpuavpus2 = VG.fromList $ map VG.fromList dimLL2 
             :: VPU.Vector Automatic (VPU.Vector (Static Veclen) NumType)
 
-    let vpuavpur1 = VPU.with1Param (VPU._elem . VPU._len) veclen $ VG.fromList $ map VG.fromList dimLL1
+    let vpuavpur1 = with1Param (_elem . _len) veclen $ VG.fromList $ map VG.fromList dimLL1
             :: VPU.Vector Automatic (VPU.Vector RunTime NumType)
-    let vpuavpur2 = VPU.with1Param (VPU._elem . VPU._len) veclen $ VG.fromList $ map VG.fromList dimLL2
+    let vpuavpur2 = with1Param (_elem . _len) veclen $ VG.fromList $ map VG.fromList dimLL2
             :: VPU.Vector Automatic (VPU.Vector RunTime NumType)
 
     let vpusvpus1 = VG.fromList $ map VG.fromList dimLL1 
@@ -140,11 +142,11 @@ main = do
     let vpsrvpsr2 = VG.fromList $ map VG.fromList dimLL2 
             :: VPSR.Vector (Static Numvec) (VPSR.Vector (Static Veclen) NumType)
 
-    let vpusvpua1 = VPU.staticToAutomatic (VPU._elem.VPU._len) vpusvpus1
-        vpusvpua2 = VPU.staticToAutomatic (VPU._elem.VPU._len) vpusvpus2
+    let vpusvpua1 = VPU.staticToAutomatic (_elem._len) vpusvpus1
+        vpusvpua2 = VPU.staticToAutomatic (_elem._len) vpusvpus2
 
-    let vpuavpua1 = VPU.staticToAutomatic VPU._len vpusvpua1
-        vpuavpua2 = VPU.staticToAutomatic VPU._len vpusvpua2
+    let vpuavpua1 = VPU.staticToAutomatic _len vpusvpua1
+        vpuavpua2 = VPU.staticToAutomatic _len vpusvpua2
 
     let vvpus1 = VG.fromList $ map VG.fromList dimLL1 
             :: V.Vector (VPU.Vector (Static Veclen) NumType)
