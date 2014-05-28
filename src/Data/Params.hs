@@ -1,59 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- | This module allows relatively simple type level parameters.
--- Unlike most Haskell libraries, the type signatures here are not much help.
--- It is easier to see how to use the library with an example.
---
--- The classic example for using type parameters is to create a list whose size is 
--- represented in the type.  
--- For example:
--- 
--- > newtype StaticList (len::Param Nat) a = StaticList [a]
--- >     deriving (Read,Show,Eq,Ord)
--- >
--- > mkParams ''StaticList
--- 
--- The 'mkParams' function creates a number of helper classes and instances.
--- It inspects the type parameters whose kind is a 'Param' something, and ignores
--- the rest.
--- In this case, we create a type class called Param_len.
--- Our StaticList will be an instance of this type class whenever the len parameter
--- is valid.
--- More details on this in the next section.
--- For now, we'll see how to use the length information by creating a Monoid 
--- instance.
--- Notice that the param_len function is used to extract the type level length.
--- 
--- > instance 
--- >   ( Monoid a
--- >   , Param_len (StaticList len a)
--- >   ) => Monoid (StaticList len a) 
--- >       where
--- >
--- >       mempty = StaticList $ replicate n mempty
--- >           where 
--- >               n = param_len (undefined::StaticList len a)
--- >
--- >       mappend (StaticList a) (StaticList b) = StaticList $ zipWith mappend a b
--- 
--- So that's how we use the type level information.
--- Now we need to see how to set the information.
--- In the following simple main function, we create two variables.
--- The length of the static variable is determined at compile time, whereas the length
--- of the dynamic variable is read from stdin.
--- 
--- > main = do
--- >       putStr "Enter a size for the dynamic list: "
--- >       size <- readLn
--- >       let static  =                     mempty :: StaticList (Static 5) (Maybe [Int])
--- >       let dynamic = withParam (len size) mempty :: StaticList RunTime    (Maybe [Int])
--- >       putStrLn $ "static  = " ++ show static
--- >       putStrLn $ "dynamic = " ++ show dynamic
--- 
--- This example can be found in more detail <https://github.com/mikeizbicki/typeparams/blob/master/examples/example1-StaticList.lhs on github>.
--- There are many more examples of advanced features in the repository.
-
 module Data.Params
     ( 
 
@@ -61,20 +8,25 @@ module Data.Params
     Param (..)
     , mkParams
 
---     , withParam
---     , withParam2
---     , withParam3
+    , with1Param
+    , apWith1Param
 
---     , withInnerParam
---     , withInnerParam2
---     , withInnerParam3
-
---     , apWithParam
---     , apWithInnerParam
+    , mkWith1Param
+    , mkApWith1Param
 
     -- ** Classes
---     , SetParam (..)
-    , WithParam (..)
+    , HasDictionary (..)
+    , ViewParam (..)
+    , ParamDict (..)
+
+    , ApplyConstraint
+    , coerceParamDict
+    , TypeLens (..)
+    , GetParam
+    , SetParam
+    , Base
+    , ApplyConstraint_GetType
+    , ApplyConstraint_GetConstraint
 
     -- * Advanced 
     -- | The code in this section is only for advanced users when the 'mkParams'
@@ -84,12 +36,19 @@ module Data.Params
     -- medication afterward.
 
     -- ** Template haskell generating code
+    , mkParamClasses
     , mkParamClass
+    , mkStarParamClass
+    , mkTypeLens
+    , mkHasDictionary_Star
+    , mkViewParam_Star
+    , mkApplyConstraint_Star
+
     , mkParamInstance
-    , mkWithParamClass
-    , mkWithParamInstance
     , mkReifiableConstraint
     , mkReifiableConstraint'
+
+    , mkGettersSetters
 
     -- ** General parameter classes
     -- | These classes were shamelessly stollen from <https://www.fpcomplete.com/user/thoughtpolice/using-reflection this excellent reflection tutorial>.
@@ -117,12 +76,14 @@ module Data.Params
     )
     where
 
+import Control.Category
 import Control.Monad
+import Data.Proxy
+import Data.List (partition)
+import Data.Monoid
 import Language.Haskell.TH hiding (reify)
 import Language.Haskell.TH.Syntax hiding (reify)
 import qualified Language.Haskell.TH as TH
-import Data.Proxy
-import Data.Monoid
 
 import GHC.TypeLits
 import Data.Params.Frac
@@ -133,6 +94,7 @@ import Data.Reflection
 import Unsafe.Coerce
 
 import Debug.Trace
+import Prelude hiding ((.),id)
 
 -------------------------------------------------------------------------------
 
@@ -220,98 +182,96 @@ apUsing2 d1 d2 m f = reify d2 $ \(_ :: Proxy s2) -> reify d1 $ \(_ :: Proxy s1) 
 
 apUsing' :: forall p a1 a2 b. ReifiableConstraint p => Def p a2 -> (p a2 => a1) -> (p a2 => a1 -> b) -> b
 apUsing' def = unsafeCoerce $ apUsing def
-
--- usingInner :: forall p b a. ReifiableConstraint p => Def p a -> (p a => b a) -> b a
--- usingInner d m = reify d $ \(_ :: Proxy s) ->
---     let replaceProof :: Reifies s (Def p a) :- p a
---         replaceProof = trans proof reifiedIns
---             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
---     in m \\ replaceProof
     
 -------------------
 -- for external use
 
-class SetParam p m1 m2 | p m1 -> m2, p m2 -> m1 where
-    setParam :: DefParam p m1 -> (p m1 => m1) -> m2
+data TypeLens (a:: * -> Constraint) (b:: * -> Constraint) = TypeLens
 
-class WithParam p m where
-    data DefParam p m :: *
-
-    type ParamConstraint p m :: Constraint
-    type ParamConstraint p m = p m
+instance Category TypeLens where
+    id = TypeLens
+    a.b = TypeLens
     
-    -- | dynamically specifies a single 'RunTime' parameter of function output
-    withParam :: DefParam p m -> (ParamConstraint p m => m) -> m
+class Base a 
 
-    -- | dynamically specifies a single 'RunTime' parameter of function input
-    apWithParam :: DefParam p m -> (ParamConstraint p m => m -> n) -> (p m => m) -> n
+-- data family ParamDict (p::k)
 
--- -- | dynamically specifies two 'RunTime' parameters of function output
--- withParam2 :: (WithParam p1 m, WithParam p2 m) => 
---     DefParam p1 m -> DefParam p2 m -> ((ParamConstraint p1 m, ParamConstraint p2 m) => m) -> m
--- withParam2 p1 p2 f = withParam p1 $ withParam p2 $ f
--- 
--- -- | dynamically specifies three 'RunTime' parameters of function output
--- withParam3 :: (WithParam p1 m, WithParam p2 m, WithParam p3 m) =>
---     DefParam p1 m -> DefParam p2 m -> DefParam p3 m -> ((ParamConstraint p1 m, ParamConstraint p2 m, ParamConstraint p3 m) => m) -> m
--- withParam3 p1 p2 p3 f = withParam p1 $ withParam p2 $ withParam p3 $ f
+class HasDictionary p where
+    type ParamType p :: *
+    data ParamDict p
+    typeLens2dictConstructor :: TypeLens base p -> (ParamType p -> ParamDict p)
 
--- | dynamically specifies a single 'RunTime' parameter on the "inner" type of function output
-withInnerParam :: forall p m n. WithParam p m => DefParam p m -> (ParamConstraint p m => n m) -> n m
-withInnerParam = unsafeCoerce (withParam :: DefParam p m -> (ParamConstraint p m => m) -> m)
+class ViewParam p t where
+    viewParam :: TypeLens Base p -> t -> ParamType p
 
-{-
--- | dynamically specifies two 'RunTime' parameters on the "inner" type of function output
-withInnerParam2 :: forall p1 p2 m n. 
-    ( WithParam p1 m
-    , WithParam p2 m
-    ) => DefParam p1 m
-      -> DefParam p2 m
-      -> ((p1 m, p2 m) => n m) 
-      -> n m
-withInnerParam2 = unsafeCoerce (withParam2 
-    :: DefParam p1 m 
-    -> DefParam p2 m 
-    -> ((p1 m,p2 m) => m) 
-    -> m
-    )
+coerceParamDict :: (ParamType p -> ParamDict p) -> (ParamType p -> ParamDict (a p))
+coerceParamDict = unsafeCoerce
 
--- | dynamically specifies three 'RunTime' parameters on the "inner" type of function output
-withInnerParam3 :: forall p1 p2 p3 m n. 
-    ( WithParam p1 m
-    , WithParam p2 m
-    , WithParam p3 m
-    ) => DefParam p1 m
-      -> DefParam p2 m
-      -> DefParam p3 m
-      -> ((p1 m, p2 m, p3 m) => n m) 
-      -> n m
-withInnerParam3 = unsafeCoerce (withParam3 
-    :: DefParam p1 m 
-    -> DefParam p2 m 
-    -> DefParam p3 m 
-    -> ((p1 m,p2 m,p3 m) => m) 
-    -> m
-    )
--}
+type ApplyConstraint p m = (ApplyConstraint_GetConstraint p) (ApplyConstraint_GetType p m)
+type family ApplyConstraint_GetConstraint (p::k) :: * -> Constraint 
+type family ApplyConstraint_GetType (p::k) t :: * 
 
--- | dynamically specifies a single 'RunTime' parameter of function input
--- apWithParam2 :: DefParam p1 m -> DefParam p2 m -> ((p1 m,p2 m) => m -> n) -> ((p1 m,p2 m) => m) -> n
--- apWithParam2 p1 p2 f m = apWithParam p2 (apWithParam p1 f) m
+type family GetParam (p::k1) (t::k2) :: k3
+type family SetParam (p::k1) (a::k2) (t::k3) :: k3
 
--- | dynamically specifies a single 'RunTime' parameter on the "inner" type of function input 
--- apWithInnerParam :: forall p m n o. 
---     ( WithParam p m 
---     ) => DefParam p m 
---       -> (ParamConstraint p m => n m -> o) 
---       -> (ParamConstraint p m => n m) 
---       -> o
--- apWithInnerParam = unsafeCoerce (apWithParam 
---     :: DefParam p m 
---     -> (ParamConstraint p m => m -> o) 
---     -> (ParamConstraint p m => m) 
---     -> o
---     )
+newtype DummyNewtype a = DummyNewtype a
+
+mkWith1Param :: proxy m -> (
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
+    , HasDictionary p
+    ) => TypeLens Base p
+      -> ParamType p
+      -> (ApplyConstraint p m => m)
+      -> m
+      )
+mkWith1Param _ = with1Param
+
+with1Param :: forall p m.
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
+    , HasDictionary p
+    ) => TypeLens Base p
+      -> ParamType p
+      -> (ApplyConstraint p m => m) 
+      -> m
+with1Param lens v = using' (unsafeCoerce DummyNewtype (\x -> p) :: Def (ApplyConstraint_GetConstraint p) (ApplyConstraint_GetType p m)) 
+    where
+        p = typeLens2dictConstructor lens v :: ParamDict p 
+
+mkApWith1Param :: proxy m -> proxy n -> (
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
+    , HasDictionary p
+    )  => TypeLens Base p
+       -> ParamType p
+       -> (ApplyConstraint p m => m -> n)
+       -> (ApplyConstraint p m => m)
+       -> n
+       )
+mkApWith1Param _ _ = apWith1Param
+
+apWith1Param :: forall p m n.
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
+    , HasDictionary p
+    ) => TypeLens Base p
+      -> ParamType p
+      -> (ApplyConstraint p m => m -> n) 
+      -> (ApplyConstraint p m => m) 
+      -> n
+apWith1Param lens v = flip $ apUsing' 
+    (unsafeCoerce DummyNewtype (\x -> p) :: Def (ApplyConstraint_GetConstraint p) (ApplyConstraint_GetType p m))
+    where
+        p = typeLens2dictConstructor lens v :: ParamDict p 
+
+-- apWith2Param ::
+--     ( ReifiableConstraint p2
+--     , ReifiableConstraint p4
+--     ) => ParamDict p1 p2 m1 m2
+--       -> ParamDict p3 p4 m1 m3
+--       -> ((p2 m2,p4 m3) => m1 -> n)
+--       -> ((p2 m2,p4 m3) => m1)
+--       -> n
+-- apWith2Param p1 p2 = flip $ apUsing2 
+--     (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p1)) 
+--     (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p2))
 
 -------------------------------------------------------------------------------
 -- template haskell
@@ -338,15 +298,15 @@ mkParams dataName = do
 
     paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass n t) varL' 
     reifiableC <- liftM concat $ mapM (\(n,k,t) -> mkReifiableConstraint' 
-            (mkName $ "GetParam_"++n) 
+            (mkName $ "Param_"++n) 
             [SigD (mkName $ "getParam_"++n) $ AppT (AppT ArrowT (VarT $ mkName "m")) t ])
          varL' 
     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
 
-    withParamClass <- liftM concat $ mapM (\(n,k,t) -> mkWithParamClass n t) varL'
-    withParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkWithParamInstance n t dataName) varL' 
+--     withParamClass <- liftM concat $ mapM (\(n,k,t) -> mkWithParamClass n t) varL'
+--     withParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkWithParamInstance n t dataName) varL' 
 
-    return $ paramClass++reifiableC++paramInsts++withParamClass++withParamInsts
+    return $ paramClass++reifiableC++paramInsts -- ++withParamClass++withParamInsts
 --     return $ paramClass++reifiableC -- ++paramInsts -- ++withParamClass
 
 ---------------------------------------
@@ -384,7 +344,7 @@ kind2convert (ConT n) = mkName $ case nameBase n of
     _ -> "id"
 
 param2class :: Name -> Name
-param2class p = mkName $ "GetParam_" ++ nameBase p
+param2class p = mkName $ "Param_" ++ nameBase p
 
 param2func :: Name -> Name
 param2func p = mkName $ "getParam_" ++ nameBase p
@@ -392,14 +352,395 @@ param2func p = mkName $ "getParam_" ++ nameBase p
 ---------------------------------------
 -- helper TH functions
 
+tyVarBndr2str :: TyVarBndr -> String
+tyVarBndr2str (PlainTV n) = nameBase n
+tyVarBndr2str (KindedTV n _) = nameBase n
+
+applyTyVarBndrL :: Name -> [ TyVarBndr ] -> Type
+applyTyVarBndrL name xs = go xs (ConT name)
+    where
+        go [] t = t
+        go (x:xs) t = go xs (AppT t (VarT $ mkName $ tyVarBndr2str x))
+
+-------------------------------------------------------------------------------
+-- template haskell
+
+-- | Given a data type of the form
+--
+-- > data Type v1 v2 ... vk = ...
+--
+-- creates "GetParam" instances of the form
+--
+-- > type instance GetParam Param_v1 (Type v1 v2 ... vk) = v1
+-- > type instance GetParam Param_v2 (Type v1 v2 ... vk) = v2
+-- > ...
+-- > type instnce GetParam Param_vk (Type v1 v2 ... vk) = vk
+--
+-- and "SetParam" instances of the form
+--
+-- > type instance SetParam Param_v1 newparam (Type v1 v2 ... vk) = Type newparam v2 ... vk
+-- > type instance SetParam Param_v2 newparam (Type v1 v2 ... vk) = Type v1 newparam ... vk
+-- > ...
+-- > type instance SetParam Param_vk newparam (Type v1 v2 ... vk) = Type v1 v2 ... newparam
+--
+-- This function requires that the Param_vk classes have already been defined.
+--
+mkGettersSetters :: Name -> Q [Dec]
+mkGettersSetters dataName = do
+    c <- TH.reify dataName
+    let tyVarBndrL = case c of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+            otherwise -> error $ "Cannot mkGettersSetters on "++nameBase dataName++"; reify = "++show c
+
+    let getters = 
+            [ TySynInstD
+                ( mkName "GetParam" )
+                ( TySynEqn
+                    [ ConT $ mkName $ "Param_" ++ tyVarBndr2str x
+                    , applyTyVarBndrL dataName tyVarBndrL
+                    ]
+                    ( VarT $ mkName $ tyVarBndr2str x
+                    )
+                )
+            | x <- tyVarBndrL
+            ]
+
+    let setters = 
+            [ TySynInstD
+                ( mkName "SetParam" )
+                ( TySynEqn
+                    [ ConT $ mkName $ "Param_" ++ tyVarBndr2str x
+                    , VarT $ mkName $ "newparam"
+                    , applyTyVarBndrL dataName tyVarBndrL
+                    ]
+                    ( applyTyVarBndrL dataName $ map 
+                        (\a -> if tyVarBndr2str a==tyVarBndr2str x
+                            then PlainTV $ mkName "newparam"
+                            else a
+                        ) 
+                        tyVarBndrL 
+                    )
+                )
+            | x <- tyVarBndrL
+            ]
+
+    return $ getters++setters
+
+-- | Given a data type of the form
+--
+-- > data Type (v1 :: Param k1) v2 = ...
+--
+-- creates the following "Param_" classes that uniquely identify the parameters
+--
+-- > class Param_v1 t where getParam_v1 :: t -> kind2type k1
+-- > class Param_v2 t where getParam_v2 :: t -> ()
+--
+mkParamClasses :: Name -> Q [Dec]
+mkParamClasses dataName = do
+    c <- TH.reify dataName
+    let tyVarBndrL = case c of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+
+    let (tyVarBndrL_config,tyVarBndrL_notconfig) = partition filtergo tyVarBndrL 
+        filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
+        filtergo _ = False
+
+    liftM concat $ forM tyVarBndrL_config $ \(KindedTV name (AppT _ k)) -> 
+        mkParamClass (nameBase name) (kind2type k)
+
+    liftM concat $ forM tyVarBndrL_notconfig $ \ tv ->
+        mkStarParamClass (tyVarBndr2str tv)
+
+-- | Creates classes of the form
+--
+-- > class Param_paramname t where
+-- >     getParam_paramname :: t -> paramT
+--
+-- NOTE: this function should probably not be called directly
+mkParamClass :: String -> Type -> Q [Dec]
+mkParamClass paramname paramT = do
+    isDef <- lookupTypeName $ "Param_"++paramname
+    return $ case isDef of
+        Just _ -> []
+        Nothing -> 
+            [ ClassD
+                [ ]
+                ( mkName $ "Param_"++paramname ) 
+                [ PlainTV $ mkName "t" ]
+                [ ]
+                [ SigD
+                    (mkName $ "getParam_"++paramname) 
+                    (AppT
+                        (AppT
+                            ArrowT
+                            (VarT $ mkName "t"))
+                        paramT)
+                ]
+            ]
+
+-- | Creates classes of the form
+--
+-- > class Param_paramname (p :: * -> Constraint) (t :: *) where
+--
+-- NOTE: this function should probably not be called directly
+mkStarParamClass :: String -> Q [Dec]
+mkStarParamClass paramname = do
+    isDef <- lookupTypeName $ "Param_"++paramname
+    return $ case isDef of
+        Just _ -> []
+        Nothing -> 
+            [ ClassD
+                [ ]
+                ( mkName $ "Param_"++paramname )
+                [ KindedTV (mkName "p") (AppT (AppT ArrowT StarT) ConstraintT)
+                , KindedTV (mkName "t") StarT
+                ] 
+                [ ]
+                [ ]
+            ]
+
+-- | returns True if the parameter has kind *, False otherwise
+isStarParam :: String -> Q Bool
+isStarParam paramname = do
+    info <- TH.reify $ mkName $ "Param_"++paramname
+    return $ case info of
+        ClassI (ClassD _ _ xs _ _) _ -> length xs == 2 
+
+-- return (str /= "len")
+
+-- | Creates a "TypeLens" for the given paramname.
+-- If paramname corresponds to a star parameter, then create a "TypeLens" of the form
+--
+-- > _paramname :: TypeLens p (Param_paramname p)
+-- > _paramname = TypeLens
+--
+-- Else, if paramname correponds to a config parameter, then create a "TypeLens" of the form
+--
+-- > _paramname :: TypeLens Base Param_paramname
+-- > _paramname = TypeLens
+--
+mkTypeLens :: String -> Q [Dec]
+mkTypeLens paramname = do
+    isDef <- lookupValueName $ "_"++paramname
+    isStar <- isStarParam paramname
+    return $ case isDef of
+        Just _ -> []
+        Nothing -> if isStar
+            then 
+                [ ValD
+                    ( SigP
+                        ( VarP $ mkName $ "_"++paramname )
+                        ( ForallT 
+                            [ PlainTV $ mkName "p" ]
+                            [ ]
+                            ( AppT 
+                                ( AppT 
+                                    ( ConT $ mkName "TypeLens" ) 
+                                    ( VarT $ mkName "p" )
+                                )
+                                ( AppT
+                                    ( ConT $ mkName $ "Param_" ++ paramname )
+                                    ( VarT $ mkName "p" )
+                                )
+                            )
+                        )
+                    )
+                    ( NormalB
+                        ( VarE $ mkName $ "undefined" )
+                    )
+                    [ ]
+                ]
+            else
+                [ ValD
+                    ( SigP
+                        ( VarP $ mkName $ "_"++paramname )
+                        ( ForallT 
+                            [ ]
+                            [ ]
+                            ( AppT 
+                                ( AppT 
+                                    ( ConT $ mkName "TypeLens" ) 
+                                    ( ConT $ mkName "Base" )
+                                )
+                                ( ConT $ mkName $ "Param_" ++ paramname )
+                            )
+                        )
+                    )
+                    ( NormalB
+                        ( VarE $ mkName $ "undefined" )
+                    )
+                    [ ]
+                ]
+
+-- | Given the class Param_paramname that indexes a star parameter paramname, 
+-- create an instance of the form
+--
+-- > instance 
+-- >     ( HasDictionary p
+-- >     ) => HasDictionary (Param_paramname p)
+-- >         where
+-- >     type ParamType (Param_paramname p) = ParamType p
+-- >     typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
+mkHasDictionary_Star :: Name -> Q [Dec]
+mkHasDictionary_Star paramname = return
+    [ InstanceD
+        [ ClassP (mkName "HasDictionary") [VarT $ mkName "p"] ]
+        ( AppT 
+            ( ConT $ mkName "HasDictionary" )
+            ( AppT (ConT paramname) (VarT $ mkName "p") )
+        )
+        [ TySynInstD
+            ( mkName "ParamType" )
+            ( TySynEqn
+                [ AppT (ConT paramname) (VarT $ mkName "p") ]
+                ( AppT (ConT $ mkName "ParamType") (VarT $ mkName "p") )
+            )
+        , NewtypeInstD
+            [ ]
+            ( mkName "ParamDict" )
+            [ AppT (ConT paramname) (VarT $ mkName "p") ]
+            ( RecC
+                ( mkName $ "ParamDict_"++nameBase paramname )
+                [ ( mkName ("unParamDict_"++nameBase paramname)
+                  , NotStrict
+                  , AppT (ConT $ mkName "ParamType") (VarT $ mkName "p")
+                  ) 
+                ]
+            )
+            [ ]
+        , FunD
+            ( mkName "typeLens2dictConstructor" )
+            [ Clause
+                [ VarP $ mkName "x" ]
+                ( NormalB $ AppE
+                    ( VarE $ mkName "coerceParamDict" )
+                    ( AppE
+                        ( VarE $ mkName "typeLens2dictConstructor" )
+                        ( SigE
+                            ( ConE $ mkName "TypeLens" ) 
+                            ( AppT
+                                ( AppT
+                                    ( ConT $ mkName "TypeLens" )
+                                    ( ConT $ mkName "Base" )
+                                )
+                                ( VarT $ mkName "p" )
+                            )
+                        )
+                    )
+                )
+                [ ]
+            ]
+        ]
+    ]
+
+-- | Given star parameter paramname and data type dataname that has parameter paramname,
+-- create type instances of the form
+--
+-- > type instance ApplyConstraint_GetConstraint (Param_paramname p) 
+-- >    = ApplyConstraint_GetConstraint p 
+-- >
+-- > type instance ApplyConstraint_GetType (Param_paramname p) (dataname v1 v2 ... paramname ... vk) 
+-- >    = ApplyConstraint_GetType p paramname
+-- 
+mkApplyConstraint_Star :: String -> Name -> Q [Dec]
+mkApplyConstraint_Star paramstr dataname = do
+    let paramname = mkName $ "Param_"++paramstr
+    info <- TH.reify dataname
+    let tyVarBndrL = case info of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+
+    return 
+        [ TySynInstD
+            ( mkName "ApplyConstraint_GetConstraint" )
+            ( TySynEqn
+                [ (AppT (ConT paramname) (VarT $ mkName "p")) ]
+                ( AppT (ConT $ mkName "ApplyConstraint_GetConstraint" ) (VarT $ mkName "p") )
+            )
+        , TySynInstD
+            ( mkName "ApplyConstraint_GetType" )
+            ( TySynEqn
+                [ (AppT (ConT paramname) (VarT $ mkName "p"))
+                , applyTyVarBndrL dataname tyVarBndrL
+                ]
+                ( AppT
+                    ( AppT
+                        ( ConT $ mkName "ApplyConstraint_GetType" )
+                        ( VarT $ mkName "p" )
+                    )
+                    ( VarT $ mkName paramstr )
+                )
+            )        
+        ]
+
+-- | Given star parameter paramname and data type dataname that has parameter paramname,
+-- create an instance of the form
+--
+-- instance 
+--     ( ViewParam p paramname 
+--     ) => ViewParam (Param_paramname p) (dataname v1 v2 ... paramname ... vk)
+--         where
+--     viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: paramname)
+--
+mkViewParam_Star :: String -> Name -> Q [Dec]
+mkViewParam_Star paramname dataname = do
+    info <- TH.reify dataname
+    let tyVarBndrL = case info of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+    return 
+        [ InstanceD
+            [ ClassP 
+                (mkName "ViewParam") 
+                [ VarT $ mkName "p"
+                , VarT $ mkName paramname
+                ]
+            ]
+            ( AppT 
+                ( AppT
+                    ( ConT $ mkName "ViewParam" )
+                    ( AppT (ConT $ mkName $ "Param_"++paramname) (VarT $ mkName "p") )
+                )
+                ( applyTyVarBndrL dataname tyVarBndrL )
+            )
+            [ FunD
+                ( mkName "viewParam" )
+                [ Clause
+                    [ VarP $ mkName "x", VarP $ mkName "y" ]
+                    ( NormalB $ AppE
+                        ( AppE
+                            ( VarE $ mkName "viewParam" )
+                            ( SigE 
+                                ( VarE $ mkName "undefined" )
+                                ( AppT
+                                    ( AppT 
+                                        ( ConT $ mkName "TypeLens" ) 
+                                        ( ConT $ mkName "Base") 
+                                    ) 
+                                    ( VarT $ mkName "p" )
+                                )
+                            )
+                        )
+                        ( SigE
+                            ( VarE $ mkName "undefined" )
+                            ( VarT $ mkName paramname )
+                        )
+                    )
+                    [ ]
+                ] 
+            ]
+        ]
+
 -- | creates instances of the form
 --
--- > instance (KnownNat paramName) => GetParam_paramName (Static paramName) where
+-- > instance (KnownNat paramName) => Param_paramName (Static paramName) where
 -- >     param_paramName m = fromIntegral $ natVal (Proxy::Proxy paramName)
--- >
--- > instance WithParam GetParam_paramName (dataName) where
--- >     data DefParam GetParam_paramName (dataName ...) = WithParam_dataName_paramName (...)
--- >     withParam = (...)
 --
 mkParamInstance :: String -> Type -> Name -> Q [Dec]
 mkParamInstance paramStr paramType dataName  = do
@@ -447,181 +788,6 @@ mkParamInstance paramStr paramType dataName  = do
                     []
                 ]
             ]
-        , InstanceD
-            []
-            (AppT 
-                (AppT
-                    (ConT $ mkName "WithParam")
-                    (ConT (param2class paramName))
-                )
-                (tyVarL2Type tyVarL (PromotedT $ mkName "RunTime"))
-            )
-            [ DataInstD
-                []
-                (mkName $ "DefParam")
-                [ ConT $ param2class paramName, tyVarL2Type tyVarL (PromotedT $ mkName "RunTime") ]
-                [ RecC 
-                    (mkName $ "WithParam_"++nameBase dataName++"_"++nameBase paramName)
-                    [(mkName $ "unWithParam_"++nameBase dataName++"_"++nameBase paramName,NotStrict,paramType)]
-                ]
-                []
-            , FunD
-                (mkName $ "withParam")
-                [ Clause
-                    [VarP $ mkName "p", VarP $ mkName "a"]
-                    (NormalB $
-                        AppE
-                            (AppE
-                                (VarE $ mkName "using")
-                                (AppE
-                                    (ConE $ mkName $ "Def_GetParam_"++nameBase paramName)
-                                    (LamE
-                                        [VarP $ mkName"x"]
-                                        (AppE
-                                            (VarE $ mkName $ "unWithParam_"++nameBase dataName++"_"++nameBase paramName)
-                                            (VarE $ mkName "p")
-                                        )
-                                    )
-                                )
-                            )
-                            (VarE $ mkName "a")
-                    )
-                    []
-                ]
-            , FunD
-                (mkName $ "apWithParam")
-                [ Clause
-                    [VarP $ mkName "p", VarP $ mkName "f", VarP $ mkName "a"]
-                    (NormalB $
-                        AppE
-                            (AppE
-                                (AppE 
-                                    (VarE $ mkName "apUsing")
-                                    (AppE
-                                        (ConE $ mkName $ "Def_GetParam_"++nameBase paramName)
-                                        (LamE
-                                            [VarP $ mkName"x"]
-                                            (AppE
-                                                (VarE $ mkName $ "unWithParam_"++nameBase dataName++"_"++nameBase paramName)
-                                                (VarE $ mkName "p")
-                                            )
-                                        )
-                                    )
-                                )
-                                (VarE $ mkName "a")
-                            )
-                            (VarE $ mkName "f")
-                    )
-                    []
-                ]
-            ]
-        ]
-
-    where
-        tyVarL2Type xs matchType = go $ reverse xs
-            where
-                go [] = ConT $ mkName $ nameBase dataName
-                go ((PlainTV n):xs) = AppT (go xs) (VarT n)
-                go ((KindedTV n k):xs) = AppT (go xs) $ if nameBase n==paramStr
-                    then matchType 
-                    else (VarT n)
-
--- | Creates classes of the form
---
--- > class GetParam_paramname m where
--- >     getParam_paramname :: m -> paramT
---
-mkParamClass :: String -> Type -> Q [Dec]
-mkParamClass paramname paramT = do
-    isDef <- lookupTypeName $ "GetParam_"++paramname
-    return $ case isDef of
-        Just _ -> []
-        Nothing -> 
-            [ ClassD
-                []
-                (mkName $ "GetParam_"++paramname) 
-                [PlainTV $ mkName "m"]
-                []
-                [ SigD
-                    (mkName $ "getParam_"++paramname) 
-                    (AppT
-                        (AppT
-                            ArrowT
-                            (VarT $ mkName "m"))
-                        paramT)
-                ]
-            ]
-
--- | Creates classes of the form:
---
--- > class WithParam_paramname m where
--- >     paramname :: paramT -> DefParam Param_paramname m
---
-mkWithParamClass :: String -> Type -> Q [Dec]
-mkWithParamClass paramname paramT = do
---     paramT <- qparamT
-    isDef <- lookupTypeName $ "WithParam_"++paramname
-    return $ case isDef of
-        Just _ -> []
-        Nothing ->
-            [ ClassD
-                []
-                (mkName $ "WithParam_"++paramname)
-                [PlainTV $ mkName "m"]
-                []
-                [SigD
-                    (mkName $ paramname)
-                    (AppT
-                        (AppT
-                            ArrowT
-                            paramT
-                        )
-                        (AppT
-                            (AppT
-                                (ConT $ mkName "DefParam")
-                                (ConT $ mkName $ "GetParam_"++paramname)
-                            )
-                            (VarT $ mkName "m")
-                        )
-                    )
-                ]
-            ]
-
--- | Creates instances of the form:
---
--- > instance WithParam_paramname dataname where
--- >     paramname = WithParam_dataName_paramname
---
-mkWithParamInstance :: String -> Type -> Name -> Q [Dec]
-mkWithParamInstance paramStr paramType dataName  = do
-    c <- TH.reify dataName
-    let tyVarL = case c of
-            TyConI (NewtypeD _ _ xs _ _) -> xs
-            TyConI (DataD _ _ xs _ _ ) -> xs
-            FamilyI (FamilyD _ _ xs _) _ -> xs
-            otherwise -> error $ "mkWithParamInstance patern match failed; c = "++show c
-
-    let tyVarL' = filter filtergo tyVarL
-        filtergo (KindedTV n k) = nameBase n==paramStr
-        filtergo (PlainTV n) = nameBase n == paramStr
-
-    let [KindedTV paramName _] = tyVarL'
-
-    return
-        [ InstanceD
-            [ ]
-            (AppT 
-                (ConT $ mkName $ "WithParam_"++nameBase paramName)
-                (tyVarL2Type tyVarL (PromotedT $ mkName "RunTime") )
-            )
-            [ FunD
-                ( mkName $ nameBase paramName )
-                [ Clause
-                    [ ]
-                    (NormalB $ (ConE $ mkName $ "WithParam_"++nameBase dataName++"_"++nameBase paramName))
-                    []
-                ]
-            ]
         ]
     where
         tyVarL2Type xs matchType = go $ reverse xs
@@ -631,11 +797,13 @@ mkWithParamInstance paramStr paramType dataName  = do
                 go ((KindedTV n k):xs) = AppT (go xs) $ if nameBase n==paramStr
                     then matchType 
                     else (VarT n)
+
+
 
 -- | helper for 'mkReifiableConstraints''
 mkReifiableConstraint :: String -> Q [Dec]
 mkReifiableConstraint paramStr = do
-    let name = mkName $ "GetParam_"++paramStr
+    let name = mkName $ "Param_"++paramStr
     info <- TH.reify name
     let funcL = case info of
             ClassI (ClassD _ _ _ _ xs) _ -> xs
@@ -735,109 +903,3 @@ mkReifiableConstraint' c funcL = do
 -------------------------------------------------------------------------------
 -- test
 
-data ReflectionTest1 (a::Maybe Nat) = ReflectionTest1 Int 
-    deriving (Read,Show,Eq,Ord)
-
-instance (ParamA (ReflectionTest1 a)) => Monoid (ReflectionTest1 a) where
-    mempty = ReflectionTest1 a 
-        where
-            a = paramA (undefined::ReflectionTest1 a)
-    mappend a b = a
-
-
-data ReflectionTest (a::Maybe Nat) (b::Maybe Nat) = ReflectionTest Int Int Int
-    deriving (Read,Show,Eq,Ord)
-
-instance (ParamA (ReflectionTest a b), ParamB (ReflectionTest a b)) => Monoid (ReflectionTest a b) where
-    mempty = ReflectionTest a b $ a+b
-        where
-            a = paramA (undefined::ReflectionTest a b)
-            b = paramB (undefined::ReflectionTest a b)
-    mappend a b = a
-
----------------------------------------
-
-class ParamA p where paramA :: p -> Int
-
-instance ReifiableConstraint ParamA where
-    data Def ParamA a = ParamA { paramA_ :: Int }
-    reifiedIns = Sub Dict
-
-instance Reifies s (Def ParamA a) => ParamA (ConstraintLift ParamA a s) where
-    paramA a = paramA_ (reflect a)
-
-class ParamB p where paramB :: p -> Int
-
-instance ReifiableConstraint ParamB where
-    data Def ParamB a = ParamB { paramB_ :: Int }
-    reifiedIns = Sub Dict
-
-instance Reifies s (Def ParamB a) => ParamB (ConstraintLift ParamB a s) where
-    paramB a = paramB_ (reflect a)
-
-instance KnownNat a => ParamA (ReflectionTest1 (Just a)) where
-    paramA _ = fromIntegral $ natVal (Proxy :: Proxy a)
-
-instance KnownNat a => ParamA (ReflectionTest (Just a) b) where
-    paramA _ = fromIntegral $ natVal (Proxy :: Proxy a)
-
-instance KnownNat b => ParamB (ReflectionTest a (Just b)) where
-    paramB _ = fromIntegral $ natVal (Proxy :: Proxy b)
-
-class WithParamA m where
-    a :: Int -> DefParam ParamA m
-
-instance WithParamA (ReflectionTest1 Nothing) where
-    a = DefParam_ParamA1 . ParamA
-
-instance WithParamA (ReflectionTest Nothing b) where
-    a = DefParam_ParamA . ParamA
-
-a1 = DefParam_ParamA1 . ParamA
-instance WithParam ParamA (ReflectionTest1 Nothing) where
-    data DefParam ParamA (ReflectionTest1 Nothing) = 
-            DefParam_ParamA1 { unDefParam1 :: Def ParamA (ReflectionTest1 Nothing) }
-    withParam p a = using (unDefParam1 p) a
-
-a2 = DefParam_ParamA . ParamA
-instance WithParam ParamA (ReflectionTest Nothing b) where
-    data DefParam ParamA (ReflectionTest Nothing b) = 
-            DefParam_ParamA { unDefParam :: Def ParamA (ReflectionTest Nothing b) }
-    withParam p a = using (unDefParam p) a
-
-b = DefParam_ParamB . ParamB
-instance WithParam ParamB (ReflectionTest a Nothing) where
-    data DefParam ParamB (ReflectionTest a Nothing) = 
-            DefParam_ParamB { unDefParamB :: Def ParamB (ReflectionTest a Nothing ) }
-    withParam p a = using (unDefParamB p) a
-
--------------------------------------------------------------------------------
--- simple instances
-
-instance ReifiableConstraint Eq where
-    data Def Eq a = Eq { eq_ :: a -> a -> Bool }
-    reifiedIns = Sub Dict
-
-instance Reifies s (Def Eq a) => Eq (ConstraintLift Eq a s) where
-    a == b = eq_ (reflect a) (lower a) (lower b)
-
-instance ReifiableConstraint Ord where
-    data Def Ord a = Ord { compare_ :: a -> a -> Ordering }
-    reifiedIns = Sub Dict
-
-instance Reifies s (Def Ord a) => Eq (ConstraintLift Ord a s) where
-    a == b = isEq $ compare_ (reflect a) (lower a) (lower b)
-        where
-            isEq EQ = True
-            isEq _ = False
-
-instance Reifies s (Def Ord a) => Ord (ConstraintLift Ord a s) where
-    compare a b = compare_ (reflect a) (lower a) (lower b)
-
-instance ReifiableConstraint Monoid where
-    data Def Monoid a = Monoid { mappend_ :: a -> a -> a, mempty_ :: a }
-    reifiedIns = Sub Dict
-
-instance Reifies s (Def Monoid a) => Monoid (ConstraintLift Monoid a s) where
-    mappend a b = ConstraintLift $ mappend_ (reflect a) (lower a) (lower b) 
-    mempty = a where a = ConstraintLift $ mempty_ (reflect a)

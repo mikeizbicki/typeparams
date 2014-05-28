@@ -38,11 +38,28 @@ import Data.Params
 import Data.Params.Vector
 import Data.Params.PseudoPrim
 import Unsafe.Coerce
+import Debug.Trace
+
+
+mkParamClasses ''Either
+mkGettersSetters ''Either
+mkTypeLens "a"
+mkTypeLens "b"
+mkHasDictionary_Star ''Param_a
+mkHasDictionary_Star ''Param_b
+mkViewParam_Star "a" ''Either
+mkViewParam_Star "b" ''Either
+mkApplyConstraint_Star "a" ''Either
+mkApplyConstraint_Star "b" ''Either
 
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
 
 data family Vector (len::Param Nat) elem
+mkParamClasses ''Vector
+mkGettersSetters ''Vector
+mkViewParam_Star "elem" ''Vector
+mkApplyConstraint_Star "elem" ''Vector
 
 instance (Show elem, VG.Vector (Vector len) elem) => Show (Vector len elem) where
     show v = "fromList "++show (VG.toList v)
@@ -87,6 +104,10 @@ v' = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromLis
 v'' :: Vector (Static 1) (Vector (Static 1) (Vector Automatic Float))
 v'' = runTimeToAutomatic (_elem._elem._len) 10 v'
 
+test = viewParam (_a._a._b._b._a._elem._len) $ 
+    Left $ Left $ Right $ Right $ Left $ v''
+-- test = viewParam (_b._a._elem._len) $ Right $ Left $ v''
+
 -- v'' = mkWith1Param 
 --     (Proxy::Proxy (Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))))
 --     (_elem._elem._len)
@@ -101,6 +122,14 @@ u = VG.singleton $ VG.fromList [1..10]
 
 u'' :: Vector (Static 1) (Vector RunTime Float)
 u'' = with1Param (_elem._len) 10 $ VG.singleton $ VG.fromList [1..10]
+
+show_u'' = mkApWith1Param
+    (Proxy :: Proxy (Vector (Static 1) (Vector RunTime Float)))
+    (Proxy :: Proxy String)
+    (_elem._len)
+    5
+    show
+    u''
 
 -- u' :: Vector (Static 1) (Vector RunTime Int)
 -- u' = withParam3 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
@@ -120,64 +149,6 @@ u'' = with1Param (_elem._len) 10 $ VG.singleton $ VG.fromList [1..10]
 
 ---------
 
-newtype DummyNewtype a = DummyNewtype a
-
-mkWith1Param :: proxy m -> (
-    ( ReifiableConstraint (GetConstraint p)
-    , HasDictionary p
-    ) => TypeLens Base p
-      -> ParamType p
-      -> (ApplyConstraint p m => m)
-      -> m
-      )
-mkWith1Param _ = with1Param
-
-with1Param :: forall p m.
-    ( ReifiableConstraint (GetConstraint p)
-    , HasDictionary p
-    ) => TypeLens Base p
-      -> ParamType p
-      -> (ApplyConstraint p m => m) 
-      -> m
-with1Param lens v = using' (unsafeCoerce DummyNewtype (\x -> p) :: Def (GetConstraint p) (GetType p m)) 
-    where
-        p = typeLens2dictConstructor lens v :: ParamDict p 
-
-mkApWith1Param :: proxy m -> proxy n -> (
-    ( ReifiableConstraint (GetConstraint p)
-    , HasDictionary p
-    )  => TypeLens Base p
-       -> ParamType p
-       -> (ApplyConstraint p m => m -> n)
-       -> (ApplyConstraint p m => m)
-       -> n
-       )
-mkApWith1Param _ _ = apWith1Param
-
-apWith1Param :: forall p m n.
-    ( ReifiableConstraint (GetConstraint p)
-    , HasDictionary p
-    ) => TypeLens Base p
-      -> ParamType p
-      -> (ApplyConstraint p m => m -> n) 
-      -> (ApplyConstraint p m => m) 
-      -> n
-apWith1Param lens v = flip $ apUsing' 
-    (unsafeCoerce DummyNewtype (\x -> p) :: Def (GetConstraint p) (GetType p m))
-    where
-        p = typeLens2dictConstructor lens v :: ParamDict p 
-
--- apWith2Param ::
---     ( ReifiableConstraint p2
---     , ReifiableConstraint p4
---     ) => ParamDict p1 p2 m1 m2
---       -> ParamDict p3 p4 m1 m3
---       -> ((p2 m2,p4 m3) => m1 -> n)
---       -> ((p2 m2,p4 m3) => m1)
---       -> n
--- apWith2Param p1 p2 = flip $ apUsing2 
---     (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p1)) 
---     (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p2))
 
 -------------------
 
@@ -189,7 +160,7 @@ instance
     ( KnownNat len
     , PseudoPrim elem
     ) => StaticToAutomatic 
-        GetParam_len 
+        Param_len 
         (Vector (Static len) elem)
         (Vector Automatic elem)
         where
@@ -208,7 +179,7 @@ instance
     ( KnownNat len 
     , StaticToAutomatic p elem elem'
     ) => StaticToAutomatic
-        (ApplyConstraintTo_elem p)
+        (Param_elem p)
         (Vector (Static len) elem)
         (Vector (Static len) elem')
         where
@@ -227,7 +198,7 @@ class RunTimeToAutomatic p tr ta | p tr -> ta, p ta -> tr where
 instance
     ( PseudoPrim elem
     ) => RunTimeToAutomatic
-        GetParam_len
+        Param_len
         (Vector RunTime elem)
         (Vector Automatic elem)
         where
@@ -242,7 +213,6 @@ instance
         where
             go v@(Vector_RunTime off ppi arr) = Vector_Automatic off len ppi arr
                 where
-                    ppi' = undefined
                     len = VG.length v
 
     mkPseudoPrimInfoFromRuntime _ len (PseudoPrimInfo_VectorRunTime ppi) 
@@ -251,9 +221,9 @@ instance
 instance
     ( RunTimeToAutomatic p elem elem'
     , HasDictionary p
-    , ReifiableConstraint (GetConstraint p)
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p)
     ) => RunTimeToAutomatic
-        (ApplyConstraintTo_elem p)
+        (Param_elem p)
         (Vector (Static len) elem)
         (Vector (Static len) elem')
         where
@@ -277,81 +247,80 @@ instance
 
 -------------------
 
-data TypeLens (a:: * -> Constraint) (b:: * -> Constraint) = TypeLens
-
-instance Category TypeLens where
-    id = TypeLens
-    a.b = TypeLens
-    
-class Base a 
-
-data family ParamDict (p::k)
-
-class HasDictionary p where
-    type ParamType p :: *
-    typeLens2dictConstructor :: TypeLens base p -> (ParamType p -> ParamDict p)
-
-class ViewParam p t where
-    viewParam :: TypeLens Base p -> t -> ParamType p
-
-coerceParamDict :: (ParamType p -> ParamDict p) -> (ParamType p -> ParamDict (a p))
-coerceParamDict = unsafeCoerce
-
-type ApplyConstraint p m = (GetConstraint p) (GetType p m)
-
-type family GetConstraint (p::k) :: * -> Constraint 
-type instance GetConstraint (ApplyConstraintTo_elem p) = GetConstraint p 
-type instance GetConstraint GetParam_len = GetParam_len
-
-type family GetType (p::k) t :: * 
-type instance GetType (ApplyConstraintTo_elem p) (Vector len elem) = GetType p elem
-type instance GetType GetParam_len m = m
-
 -- len
 
-_len :: TypeLens Base GetParam_len
-_len = TypeLens
+-- type instance ApplyConstraint_GetConstraint Param_len = ViewParam Param_len
+type instance ApplyConstraint_GetConstraint Param_len = Param_len
+type instance ApplyConstraint_GetType Param_len m = m
 
-instance HasDictionary GetParam_len  where
-    type ParamType GetParam_len = Int
-    typeLens2dictConstructor _ = ParamDict_Vector_len
+-- type instance GetParam Param_len (Vector len elem) = len
+-- type instance SetParam Param_len len' (Vector len elem) = Vector len' elem
+-- 
+-- _len :: TypeLens Base Param_len
+-- _len = TypeLens
 
-instance 
-    ( GetParam_len (Vector len elem)
-    ) => ViewParam GetParam_len (Vector len elem) where
-    viewParam _ _ = getParam_len (undefined :: Vector len elem)
+instance HasDictionary Param_len where
+    type ParamType Param_len = Int
+    newtype ParamDict Param_len = ParamDict_Vector_len' { getParamDict_Vector_len' :: Int } 
+    typeLens2dictConstructor _ = ParamDict_Vector_len'
 
-newtype instance ParamDict GetParam_len  =
-    ParamDict_Vector_len { getParamDict_Vector_len :: Int }
+instance
+    ( Param_len (Vector len elem)
+    ) => ViewParam Param_len (Vector len elem) where
+    viewParam _ _ = getParam_len (undefined::Vector len elem)
+
+-- instance ReifiableConstraint (ViewParam Param_len) where
+--     newtype Def (ViewParam Param_len) a = Def_Param_len { def_Param_len :: Int }
+--     reifiedIns = Sub Dict
+-- 
+-- instance 
+--     ( Reifies s (Def (ViewParam Param_len) a) 
+--     ) => ViewParam Param_len (ConstraintLift (ViewParam Param_len) a s) where
+--     viewParam _ a = def_Param_len (reflect a)
+-- 
+-- instance
+--     ( KnownNat len
+--     ) => ViewParam Param_len (Vector (Static len) elem) where
+--     viewParam _ _ = fromIntegral $ natVal (Proxy::Proxy len)
+
+-- instance
+--     (
+--     ) => ViewParam Param_len (Vector RunTime elem) 
+
+-- newtype instance ParamDict Param_len =
+--     ParamDict_Vector_len' { getParamDict_Vector_len' :: Int } 
 
 -- elem
 
-_elem :: TypeLens p (ApplyConstraintTo_elem p)
-_elem = TypeLens
+-- type instance ApplyConstraint_GetConstraint (Param_elem p) = ApplyConstraint_GetConstraint p 
+-- type instance ApplyConstraint_GetType (Param_elem p) (Vector len elem) = ApplyConstraint_GetType p elem
 
-instance 
-    ( HasDictionary p
-    ) => HasDictionary (ApplyConstraintTo_elem p) 
-        where
-    type ParamType (ApplyConstraintTo_elem p) = ParamType p 
-    typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
+-- _elem :: TypeLens p (Param_elem p)
+-- _elem = TypeLens
 
-instance 
-    ( ViewParam p elem
-    ) => ViewParam (ApplyConstraintTo_elem p) (Vector len elem)
-        where
-    viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: elem)
+-- instance 
+--     ( HasDictionary p
+--     ) => HasDictionary (Param_elem p) 
+--         where
+--     type ParamType (Param_elem p) = ParamType p 
+--     typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
 
-class ApplyConstraintTo_elem (p :: * -> Constraint) s 
-instance p elem => ApplyConstraintTo_elem p (Vector len elem)
+-- instance 
+--     ( ViewParam p elem
+--     ) => ViewParam (Param_elem p) (Vector len elem)
+--         where
+--     viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: elem)
 
-newtype instance ParamDict (ApplyConstraintTo_elem p) =
-    ParamDict_Vector_elem { getParamDict_Vector_elem :: ParamDict p }
+-- class Param_elem (p :: * -> Constraint) s 
+-- instance p elem => Param_elem p (Vector len elem)
+
+-- newtype instance ParamDict (Param_elem p) =
+--     ParamDict_Vector_elem { getParamDict_Vector_elem :: ParamDict p }
 
 -- Either 
 
 -- class HasParam_a t where
---     _a :: ParamDict p (GetParam HasParam_a t) -> ParamDict (ApplyConstraintTo_a p) t
+--     _a :: ParamDict p (GetParam HasParam_a t) -> ParamDict (Param_a p) t
 
 -- type instance GetParam HasParam_a (Either a b) = a
 -- type instance SetParam HasParam_a a' (Either a b) = Either a' b
@@ -361,27 +330,11 @@ newtype instance ParamDict (ApplyConstraintTo_elem p) =
 -- _left
 -- _left = ParamDict_Either_a
 
--- newtype instance ParamDict (ApplyConstraintTo_a p) (Either a b) =
+-- newtype instance ParamDict (Param_a p) (Either a b) =
 --     ParamDict_Either_a { getParamDict_Either_a :: ParamDict p a }
 -- 
 -- newtype instance ParamDict (ApplyConstraintTo_b p) (Either a b) =
 --     ParamDict_Either_b { getParamDict_Either_b :: ParamDict p b }
-
-_left :: TypeLens p (ApplyConstraintTo_a p)
-_left = TypeLens
-
-instance 
-    ( HasDictionary p
-    ) => HasDictionary (ApplyConstraintTo_a p)
-        where
-    type ParamType (ApplyConstraintTo_a p) = ParamType p
-    typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
-
-class ApplyConstraintTo_a (p :: * -> Constraint) t 
-instance p a => ApplyConstraintTo_a p (Either a b) 
-
-class ApplyConstraintTo_b (p :: * -> Constraint) t 
-instance p b => ApplyConstraintTo_b p (Either a b) where
 
 -- EndoFunctor
 
@@ -416,19 +369,19 @@ class EndoFunctor p t where
 instance EndoFunctor Base t where
     efmap _ f a = f a
 
-type instance GetParam (ApplyConstraintTo_a q) (Either a b) = a
-type instance SetParam (ApplyConstraintTo_a q) a' (Either a b) = Either a' b
--- instance EndoFunctor (ApplyConstraintTo_a p) (Either a b)  where
+type instance GetParam (Param_a q) (Either a b) = a
+type instance SetParam (Param_a q) a' (Either a b) = Either a' b
+-- instance EndoFunctor (Param_a p) (Either a b)  where
 --     efmap' _ f (Left a) = Left (f a)
 --     efmap' _ f (Right b) = Right b
 
--- instance EndoFunctor (ApplyConstraintTo_a p) (Either a b)  where
+-- instance EndoFunctor (Param_a p) (Either a b)  where
 --     efmap _ f (Left a) = Left (f a)
 --     efmap _ f (Right b) = Right b
 
 -- instance 
 --     ( a ~ GetParam p a 
---     ) => EndoFunctor (ApplyConstraintTo_a p) (Either a b)  where
+--     ) => EndoFunctor (Param_a p) (Either a b)  where
 --     efmap _ f (Left a) = Left (efmap (TypeLens::TypeLens q p) f a)
 --     efmap _ f (Right b) = Right b
 
@@ -437,16 +390,6 @@ type instance SetParam (ApplyConstraintTo_a q) a' (Either a b) = Either a' b
 --     efmap _ f (Right b) = Right (f b)
 
 
-
-type family GetParam (p::k1) (t::k2) :: k3
-type instance GetParam GetParam_len (Vector len elem) = len
--- type instance GetParam HasParam_a (Either a b) = a
--- type instance GetParam HasParam_b (Either a b) = b
-
-type family SetParam (p::k1) (a::k2) (t::k3) :: k3
-type instance SetParam GetParam_len len' (Vector len elem) = Vector len' elem
--- type instance SetParam HasParam_a a' (Either a b) = Either a' b
--- type instance SetParam HasParam_b b' (Either a b) = Either a b'
 
 -------------------
 
@@ -466,10 +409,10 @@ instance
     basicUnsafeThaw (Vector i ppi arr) = MVector i ppi `liftM` unsafeThawByteArray arr
 
     {-# INLINE [2] basicLength #-}
-    basicLength _ = getParam_len (undefined::Vector (Static len) elem) 
+    basicLength _ = viewParam _len (undefined::Vector (Static len) elem) 
 
     {-# INLINE basicUnsafeSlice #-}
-    basicUnsafeSlice j n v = if n /= getParam_len (undefined::Vector (Static len) elem) || j /= 0
+    basicUnsafeSlice j n v = if n /= viewParam _len (undefined::Vector (Static len) elem) || j /= 0
         then error $ "Vector.basicUnsafeSlice not allowed to change size"
         else v 
 
@@ -596,7 +539,8 @@ instance NFData (Vector RunTime elem) where
 instance 
     ( PseudoPrim elem 
 --     , GetParam_len (Vector RunTime elem)
-    , ViewParam GetParam_len (Vector RunTime elem)
+--     , ViewParam GetParam_len (Vector RunTime elem)
+    , ViewParam Param_len (Vector RunTime elem)
     ) => VG.Vector (Vector RunTime) elem 
         where
     
@@ -644,7 +588,8 @@ instance
 
 instance
     ( PseudoPrim elem
-    , GetParam_len (Vector RunTime elem)
+--     , GetParam_len (Vector RunTime elem)
+    , ViewParam Param_len (Vector RunTime elem)
     ) => PseudoPrim (Vector RunTime elem)
         where
 
@@ -653,7 +598,8 @@ instance
     
     {-# INLINE pp_sizeOf# #-}
     pp_sizeOf# (PseudoPrimInfo_VectorRunTime ppi) = 
-        unInt (pp_sizeOf ppi * (getParam_len (undefined::Vector RunTime elem)))
+--         unInt (pp_sizeOf ppi * (getParam_len (undefined::Vector RunTime elem)))
+        unInt (pp_sizeOf ppi * (viewParam _len (undefined::Vector RunTime elem)))
 
     {-# INLINE pp_alignment# #-}
     pp_alignment# (PseudoPrimInfo_VectorRunTime ppi) = 
@@ -662,7 +608,8 @@ instance
 
     {-# INLINE pp_indexByteArray# #-}
     pp_indexByteArray# (PseudoPrimInfo_VectorRunTime ppi)arr# i# = 
-        Vector_RunTime ((I# i#)*(getParam_len (undefined::Vector RunTime elem))) ppi (ByteArray arr#)
+--         Vector_RunTime ((I# i#)*(getParam_len (undefined::Vector RunTime elem))) ppi (ByteArray arr#)
+        Vector_RunTime ((I# i#)*(viewParam _len (undefined::Vector RunTime elem))) ppi (ByteArray arr#)
 
     {-# INLINE pp_readByteArray# #-}
     pp_readByteArray# (PseudoPrimInfo_VectorRunTime ppi) marr# i# s# = 
@@ -681,7 +628,8 @@ instance
                         )
                     )
                 where 
-                    len = getParam_len (undefined::Vector RunTime elem)
+                    len = viewParam _len (undefined::Vector RunTime elem)
+--                     len = getParam_len (undefined::Vector RunTime elem)
                     iii = I# (i# *# (pp_sizeOf# ppi) +# (unInt i)) 
 
     {-# INLINE seqInfo #-}
