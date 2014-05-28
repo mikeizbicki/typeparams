@@ -37,19 +37,21 @@ module Data.Params
 
     -- ** Template haskell generating code
     , mkParamClasses
-    , mkParamClass
-    , mkStarParamClass
-    , mkTypeLens
+    , mkParamClass_Star
+    , mkParamClass_Config
+    , mkTypeLens_Star
+    , mkTypeLens_Config
     , mkHasDictionary_Star
     , mkHasDictionary_Config
     , mkViewParam_Star
     , mkViewParam_Config
     , mkApplyConstraint_Star
     , mkApplyConstraint_Config
+    , Param_Dummy
 
     , mkParamInstance
     , mkReifiableConstraint
-    , mkReifiableConstraint'
+--     , mkReifiableConstraint'
 
     , mkGettersSetters
 
@@ -285,43 +287,85 @@ apWith1Param lens v = flip $ apUsing'
 -- > data NearestNeighbor (k :: Param Nat) (maxdist :: Param Float) elem = ...
 -- > mkParams ''NearestNeighbor
 --
+
+-- mkParams :: Name -> Q [Dec]
+-- mkParams dataName = do
+--     tmp <- TH.reify dataName
+--     let varL = case tmp of
+--             TyConI (NewtypeD _ _ xs _ _) -> xs
+--             TyConI (DataD _ _ xs _ _) -> xs
+--             FamilyI (FamilyD _ _ xs _) _ -> xs
+-- 
+--     let varL' = map mapgo $ filter filtergo varL
+--         filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
+--         filtergo _ = False
+--         mapgo (KindedTV name (AppT _ k)) = 
+--             (nameBase name,k,kind2type k)
+-- 
+--     paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass_Config n t) varL' 
+--     reifiableC <- liftM concat $ mapM (\(n,k,t) -> mkReifiableConstraint' 
+--             (mkName $ "Param_"++n) 
+--             [SigD (mkName $ "getParam_"++n) $ AppT (AppT ArrowT (VarT $ mkName "m")) t ])
+--          varL' 
+--     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
+-- 
+--     return $ paramClass++reifiableC++paramInsts 
+
 mkParams :: Name -> Q [Dec]
-mkParams dataName = do
-    tmp <- TH.reify dataName
-    let varL = case tmp of
+mkParams dataname = do
+    info <- TH.reify dataname
+    let tyVarBndrL = case info of
             TyConI (NewtypeD _ _ xs _ _) -> xs
             TyConI (DataD _ _ xs _ _) -> xs
             FamilyI (FamilyD _ _ xs _) _ -> xs
 
-    let varL' = map mapgo $ filter filtergo varL
+    let (tyVarBndrL_Config,tyVarBndrL_Star) = partition filtergo tyVarBndrL 
         filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
         filtergo _ = False
-        mapgo (KindedTV name (AppT _ k)) = 
-            (nameBase name,k,kind2type k)
+    
+    getterssetters <- mkGettersSetters dataname
 
-    paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass n t) varL' 
-    reifiableC <- liftM concat $ mapM (\(n,k,t) -> mkReifiableConstraint' 
-            (mkName $ "Param_"++n) 
-            [SigD (mkName $ "getParam_"++n) $ AppT (AppT ArrowT (VarT $ mkName "m")) t ])
-         varL' 
-    paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
+    configparams <- forM tyVarBndrL_Config $ \tyVarBndr -> do
+        let paramstr = tyVarBndr2str tyVarBndr
+        let ( KindedTV _ k ) = tyVarBndr
+        sequence
+            [ mkParamClass_Config paramstr (kind2type k)
+            , mkReifiableConstraint' paramstr [ paramClass_getParam paramstr (kind2type k) ]
+            , mkTypeLens_Config paramstr
+            , mkViewParam_Config paramstr dataname
+            , mkApplyConstraint_Config paramstr dataname
+            , mkHasDictionary_Config paramstr (kind2type k)
+            , mkParamInstance paramstr (kind2type k) dataname
+            ]
 
---     withParamClass <- liftM concat $ mapM (\(n,k,t) -> mkWithParamClass n t) varL'
---     withParamInsts <- liftM concat $ mapM (\(n,k,t) -> mkWithParamInstance n t dataName) varL' 
+    starparams <- forM tyVarBndrL_Star $ \tyVarBndr -> do
+        let paramstr = tyVarBndr2str tyVarBndr
+        sequence
+            [ mkTypeLens_Star paramstr
+            , mkViewParam_Star paramstr dataname
+            , mkApplyConstraint_Star paramstr dataname
+            , mkHasDictionary_Star paramstr
+            , mkParamClass_Star paramstr
+            ]
 
-    return $ paramClass++reifiableC++paramInsts -- ++withParamClass++withParamInsts
---     return $ paramClass++reifiableC -- ++paramInsts -- ++withParamClass
+    return $ getterssetters 
+        ++ (concat $ concat $ configparams) 
+        ++ (concat $ concat $ starparams)
 
 ---------------------------------------
 -- convert kinds into other objects
 
 kind2type :: Type -> Type
 kind2type (AppT ListT t) = AppT ListT $ kind2type t
+kind2type (AppT (ConT c) t) = if nameBase c=="Param"
+    then kind2type t
+    else error "kind2type nameBase c"
 kind2type (ConT n) = ConT $ mkName $ case nameBase n of
     "Nat" -> "Int"
     "Frac" -> "Rational"
     "Symbol" -> "String"
     str -> error $ "mkParams does not currently support custom type "++str
+kind2type x = error $ "kind2type on x="++show x
 --     kind -> kind
 
 kind2constraint :: Type -> Name
@@ -453,10 +497,10 @@ mkParamClasses dataName = do
         filtergo _ = False
 
     liftM concat $ forM tyVarBndrL_config $ \(KindedTV name (AppT _ k)) -> 
-        mkParamClass (nameBase name) (kind2type k)
+        mkParamClass_Config (nameBase name) (kind2type k)
 
     liftM concat $ forM tyVarBndrL_notconfig $ \ tv ->
-        mkStarParamClass (tyVarBndr2str tv)
+        mkParamClass_Star (tyVarBndr2str tv)
 
 -- | Creates classes of the form
 --
@@ -464,34 +508,37 @@ mkParamClasses dataName = do
 -- >     getParam_paramname :: t -> paramT
 --
 -- NOTE: this function should probably not be called directly
-mkParamClass :: String -> Type -> Q [Dec]
-mkParamClass paramname paramT = do
-    isDef <- lookupTypeName $ "Param_"++paramname
+mkParamClass_Config :: String -> Type -> Q [Dec]
+mkParamClass_Config paramstr paramT = do
+    isDef <- lookupTypeName $ "Param_"++paramstr
     return $ case isDef of
         Just _ -> []
         Nothing -> 
             [ ClassD
                 [ ]
-                ( mkName $ "Param_"++paramname ) 
+                ( mkName $ "Param_"++paramstr ) 
                 [ PlainTV $ mkName "t" ]
                 [ ]
-                [ SigD
-                    (mkName $ "getParam_"++paramname) 
-                    (AppT
-                        (AppT
-                            ArrowT
-                            (VarT $ mkName "t"))
-                        paramT)
-                ]
+                [ paramClass_getParam paramstr paramT ] 
             ]
+
+paramClass_getParam :: String -> Type -> Dec
+paramClass_getParam paramstr paramT
+    = SigD
+        (mkName $ "getParam_"++paramstr) 
+        (AppT
+            (AppT
+                ArrowT
+                (VarT $ mkName "t"))
+            paramT)
 
 -- | Creates classes of the form
 --
 -- > class Param_paramname (p :: * -> Constraint) (t :: *) where
 --
 -- NOTE: this function should probably not be called directly
-mkStarParamClass :: String -> Q [Dec]
-mkStarParamClass paramname = do
+mkParamClass_Star :: String -> Q [Dec]
+mkParamClass_Star paramname = do
     isDef <- lookupTypeName $ "Param_"++paramname
     return $ case isDef of
         Just _ -> []
@@ -507,75 +554,81 @@ mkStarParamClass paramname = do
             ]
 
 -- | returns True if the parameter has kind *, False otherwise
-isStarParam :: String -> Q Bool
-isStarParam paramname = do
-    info <- TH.reify $ mkName $ "Param_"++paramname
-    return $ case info of
-        ClassI (ClassD _ _ xs _ _) _ -> length xs == 2 
+-- isStarParam :: String -> Q Bool
+-- isStarParam paramname = do
+--     info <- TH.reify $ mkName $ "Param_"++paramname
+--     return $ case info of
+--         ClassI (ClassD _ _ xs _ _) _ -> length xs == 2 
 
--- | Creates a "TypeLens" for the given paramname.
--- If paramname corresponds to a star parameter, then create a "TypeLens" of the form
+-- | Creates a "TypeLens" for the given star paramname of the form
 --
 -- > _paramname :: TypeLens p (Param_paramname p)
 -- > _paramname = TypeLens
 --
--- Else, if paramname correponds to a config parameter, then create a "TypeLens" of the form
+mkTypeLens_Star :: String -> Q [Dec]
+mkTypeLens_Star paramname = do
+    isDef <- lookupValueName $ "_"++paramname
+    return $ case isDef of
+        Just _ -> []
+        Nothing -> 
+            [ ValD
+                ( SigP
+                    ( VarP $ mkName $ "_"++paramname )
+                    ( ForallT 
+                        [ PlainTV $ mkName "p" ]
+                        [ ]
+                        ( AppT 
+                            ( AppT 
+                                ( ConT $ mkName "TypeLens" ) 
+                                ( VarT $ mkName "p" )
+                            )
+                            ( AppT
+                                ( ConT $ mkName $ "Param_" ++ paramname )
+                                ( VarT $ mkName "p" )
+                            )
+                        )
+                    )
+                )
+                ( NormalB
+                    ( VarE $ mkName $ "undefined" )
+                )
+                [ ]
+            ]
+
+-- | Creates a "TypeLens" for the given config paramname of the form
 --
 -- > _paramname :: TypeLens Base Param_paramname
 -- > _paramname = TypeLens
 --
-mkTypeLens :: String -> Q [Dec]
-mkTypeLens paramname = do
+mkTypeLens_Config :: String -> Q [Dec]
+mkTypeLens_Config paramname = do
     isDef <- lookupValueName $ "_"++paramname
-    isStar <- isStarParam paramname
     return $ case isDef of
         Just _ -> []
-        Nothing -> if isStar
-            then 
-                [ ValD
-                    ( SigP
-                        ( VarP $ mkName $ "_"++paramname )
-                        ( ForallT 
-                            [ PlainTV $ mkName "p" ]
-                            [ ]
+        Nothing -> 
+            [ ValD
+                ( SigP
+                    ( VarP $ mkName $ "_"++paramname )
+                    ( ForallT 
+                        [ ]
+                        [ ]
+                        ( AppT 
                             ( AppT 
-                                ( AppT 
-                                    ( ConT $ mkName "TypeLens" ) 
-                                    ( VarT $ mkName "p" )
-                                )
-                                ( AppT
-                                    ( ConT $ mkName $ "Param_" ++ paramname )
-                                    ( VarT $ mkName "p" )
-                                )
+                                ( ConT $ mkName "TypeLens" ) 
+                                ( ConT $ mkName "Base" )
                             )
+                            ( ConT $ mkName $ "Param_" ++ paramname )
                         )
                     )
-                    ( NormalB
-                        ( VarE $ mkName $ "undefined" )
-                    )
-                    [ ]
-                ]
-            else
-                [ ValD
-                    ( SigP
-                        ( VarP $ mkName $ "_"++paramname )
-                        ( ForallT 
-                            [ ]
-                            [ ]
-                            ( AppT 
-                                ( AppT 
-                                    ( ConT $ mkName "TypeLens" ) 
-                                    ( ConT $ mkName "Base" )
-                                )
-                                ( ConT $ mkName $ "Param_" ++ paramname )
-                            )
-                        )
-                    )
-                    ( NormalB
-                        ( VarE $ mkName $ "undefined" )
-                    )
-                    [ ]
-                ]
+                )
+                ( NormalB
+                    ( VarE $ mkName $ "undefined" )
+                )
+                [ ]
+            ]
+
+-- | This class is needed because I can't get type variables to work in "reifyInstances"
+class Param_Dummy t
 
 -- | Given the class Param_paramname that indexes a star parameter paramname, 
 -- create an instance of the form
@@ -586,57 +639,69 @@ mkTypeLens paramname = do
 -- >         where
 -- >     type ParamType (Param_paramname p) = ParamType p
 -- >     typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
-mkHasDictionary_Star :: Name -> Q [Dec]
-mkHasDictionary_Star paramname = return
-    [ InstanceD
-        [ ClassP (mkName "HasDictionary") [VarT $ mkName "p"] ]
-        ( AppT 
-            ( ConT $ mkName "HasDictionary" )
-            ( AppT (ConT paramname) (VarT $ mkName "p") )
-        )
-        [ TySynInstD
-            ( mkName "ParamType" )
-            ( TySynEqn
+mkHasDictionary_Star :: String -> Q [Dec]
+mkHasDictionary_Star paramstr = do
+    let paramname = mkName $ "Param_"++paramstr
+
+    alreadyInstance <- do
+        isDef <- lookupTypeName (nameBase paramname)
+        case isDef of
+            Nothing -> return False
+            Just _ -> isInstance
+                ( mkName "HasDictionary" ) 
+                [ (AppT (ConT paramname) (ConT $ mkName "Param_Dummy")) ]
+
+    return $ if alreadyInstance
+        then [ ]
+        else [ InstanceD
+            [ ClassP (mkName "HasDictionary") [VarT $ mkName "p"] ]
+            ( AppT 
+                ( ConT $ mkName "HasDictionary" )
+                ( AppT (ConT paramname) (VarT $ mkName "p") )
+            )
+            [ TySynInstD
+                ( mkName "ParamType" )
+                ( TySynEqn
+                    [ AppT (ConT paramname) (VarT $ mkName "p") ]
+                    ( AppT (ConT $ mkName "ParamType") (VarT $ mkName "p") )
+                )
+            , NewtypeInstD
+                [ ]
+                ( mkName "ParamDict" )
                 [ AppT (ConT paramname) (VarT $ mkName "p") ]
-                ( AppT (ConT $ mkName "ParamType") (VarT $ mkName "p") )
-            )
-        , NewtypeInstD
-            [ ]
-            ( mkName "ParamDict" )
-            [ AppT (ConT paramname) (VarT $ mkName "p") ]
-            ( RecC
-                ( mkName $ "ParamDict_"++nameBase paramname )
-                [ ( mkName ("unParamDict_"++nameBase paramname)
-                  , NotStrict
-                  , AppT (ConT $ mkName "ParamType") (VarT $ mkName "p")
-                  ) 
-                ]
-            )
-            [ ]
-        , FunD
-            ( mkName "typeLens2dictConstructor" )
-            [ Clause
-                [ VarP $ mkName "x" ]
-                ( NormalB $ AppE
-                    ( VarE $ mkName "coerceParamDict" )
-                    ( AppE
-                        ( VarE $ mkName "typeLens2dictConstructor" )
-                        ( SigE
-                            ( ConE $ mkName "TypeLens" ) 
-                            ( AppT
+                ( RecC
+                    ( mkName $ "ParamDict_"++nameBase paramname )
+                    [ ( mkName ("unParamDict_"++nameBase paramname)
+                      , NotStrict
+                      , AppT (ConT $ mkName "ParamType") (VarT $ mkName "p")
+                      ) 
+                    ]
+                )
+                [ ]
+            , FunD
+                ( mkName "typeLens2dictConstructor" )
+                [ Clause
+                    [ VarP $ mkName "x" ]
+                    ( NormalB $ AppE
+                        ( VarE $ mkName "coerceParamDict" )
+                        ( AppE
+                            ( VarE $ mkName "typeLens2dictConstructor" )
+                            ( SigE
+                                ( ConE $ mkName "TypeLens" ) 
                                 ( AppT
-                                    ( ConT $ mkName "TypeLens" )
-                                    ( ConT $ mkName "Base" )
+                                    ( AppT
+                                        ( ConT $ mkName "TypeLens" )
+                                        ( ConT $ mkName "Base" )
+                                    )
+                                    ( VarT $ mkName "p" )
                                 )
-                                ( VarT $ mkName "p" )
                             )
                         )
                     )
-                )
-                [ ]
+                    [ ]
+                ]
             ]
         ]
-    ]
 
 -- | Given the class Param_paramname that indexes a config parameter paramname
 -- create an instance of the form
@@ -646,42 +711,54 @@ mkHasDictionary_Star paramname = return
 -- >    newtype ParamDict Param_len = ParamDict_paramname { getParamDict_paramname :: paramtype } 
 -- >    typeLens2dictConstructor _ = ParamDict_paramname
 --
-mkHasDictionary_Config :: Name -> Type -> Q [Dec]
-mkHasDictionary_Config paramname paramtype = return
-    [ InstanceD
-        [ ]
-        ( AppT 
-            ( ConT $ mkName "HasDictionary" )
-            ( ConT paramname )
-        )
-        [ TySynInstD
-            ( mkName "ParamType" )
-            ( TySynEqn
+mkHasDictionary_Config :: String -> Type -> Q [Dec]
+mkHasDictionary_Config paramstr paramtype = do
+    let paramname = mkName $ "Param_"++paramstr
+
+    alreadyInstance <- do
+        isDef <- lookupTypeName (nameBase paramname)
+        case isDef of
+            Nothing -> return False
+            Just _ -> isInstance 
+                ( mkName "HasDictionary" ) 
                 [ ConT paramname ]
-                ( paramtype )
-            )
-        , NewtypeInstD
+
+    return $ if alreadyInstance
+        then [ ]
+        else [ InstanceD
             [ ]
-            ( mkName "ParamDict" )
-            [ ConT paramname ]
-            ( RecC
-                ( mkName $ "ParamDict_"++nameBase paramname )
-                [ ( mkName ("unParamDict_"++nameBase paramname)
-                  , NotStrict
-                  , paramtype
-                  ) 
-                ]
+            ( AppT 
+                ( ConT $ mkName "HasDictionary" )
+                ( ConT paramname )
             )
-            [ ]
-        , FunD
-            ( mkName "typeLens2dictConstructor" )
-            [ Clause
-                [ VarP $ mkName "x" ]
-                ( NormalB $ ConE $ mkName $ "ParamDict_"++nameBase paramname )
+            [ TySynInstD
+                ( mkName "ParamType" )
+                ( TySynEqn
+                    [ ConT paramname ]
+                    ( paramtype )
+                )
+            , NewtypeInstD
                 [ ]
+                ( mkName "ParamDict" )
+                [ ConT paramname ]
+                ( RecC
+                    ( mkName $ "ParamDict_"++nameBase paramname )
+                    [ ( mkName ("unParamDict_"++nameBase paramname)
+                      , NotStrict
+                      , paramtype
+                      ) 
+                    ]
+                )
+                [ ]
+            , FunD
+                ( mkName "typeLens2dictConstructor" )
+                [ Clause
+                    [ VarP $ mkName "x" ]
+                    ( NormalB $ ConE $ mkName $ "ParamDict_"++nameBase paramname )
+                    [ ]
+                ]
             ]
         ]
-    ]
 
 
 -- | Given star parameter paramname and data type dataname that has parameter paramname,
@@ -770,24 +847,27 @@ mkApplyConstraint_Config paramstr dataname = do
 -- >     viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: paramname)
 --
 mkViewParam_Star :: String -> Name -> Q [Dec]
-mkViewParam_Star paramname dataname = do
+mkViewParam_Star paramstr dataname = trace ("mkViewParam_Star; paramstr="++paramstr++"; dataname="++show dataname) $ do
+    let paramname = mkName $ "Param_"++paramstr
+
     info <- TH.reify dataname
     let tyVarBndrL = case info of
             TyConI (NewtypeD _ _ xs _ _) -> xs
             TyConI (DataD _ _ xs _ _ ) -> xs
             FamilyI (FamilyD _ _ xs _) _ -> xs
-    return 
+
+    return $
         [ InstanceD
             [ ClassP 
                 (mkName "ViewParam") 
                 [ VarT $ mkName "p"
-                , VarT $ mkName paramname
+                , VarT $ mkName paramstr
                 ]
             ]
             ( AppT 
                 ( AppT
                     ( ConT $ mkName "ViewParam" )
-                    ( AppT (ConT $ mkName $ "Param_"++paramname) (VarT $ mkName "p") )
+                    ( AppT (ConT paramname) (VarT $ mkName "p") )
                 )
                 ( applyTyVarBndrL dataname tyVarBndrL )
             )
@@ -811,7 +891,7 @@ mkViewParam_Star paramname dataname = do
                         )
                         ( SigE
                             ( VarE $ mkName "undefined" )
-                            ( VarT $ mkName paramname )
+                            ( VarT $ mkName paramstr )
                         )
                     )
                     [ ]
@@ -928,40 +1008,34 @@ mkParamInstance paramStr paramType dataName  = do
 
 -- | helper for 'mkReifiableConstraints''
 mkReifiableConstraint :: String -> Q [Dec]
-mkReifiableConstraint paramStr = do
-    let name = mkName $ "Param_"++paramStr
+mkReifiableConstraint paramstr = do
+    let name = mkName $ "Param_"++paramstr
     info <- TH.reify name
     let funcL = case info of
             ClassI (ClassD _ _ _ _ xs) _ -> xs
             otherwise -> error "mkReifiableConstraint parameter must be a type class"
-    mkReifiableConstraint' name funcL
+    mkReifiableConstraint' paramstr funcL
 
 -- | creates instances of the form
 --
 -- > instance ReifiableConstraint Def_Param_paramName where
 -- >     data Def (Def_Param_paramName) a = Param_paramName {}  
 --
-mkReifiableConstraint' :: Name -> [Dec] -> Q [Dec] 
-mkReifiableConstraint' c funcL = do
---     isDef <- lookupValueName $ {-"Def_"++-}nameBase c
---     isDef <- lookupTypeName $ {-"Def_"++-}nameBase c
---     isDef <- reifyInstances (mkName "ReifiableConstraint") [ConT c]
-    isDef <- isInstance (mkName "ReifiableConstraint") [ConT c]
---     return $ case isDef of
---         Just x -> []
---         Nothing -> 
+mkReifiableConstraint' :: String -> [Dec] -> Q [Dec] 
+mkReifiableConstraint' paramstr funcL = do
+    let paramname = mkName $ "Param_"++paramstr
+    isDef <- isInstance (mkName "ReifiableConstraint") [ConT paramname]
     return $ if isDef
-        then []
+        then [ ]
         else [ InstanceD 
                 []
-                (AppT (ConT $ mkName "ReifiableConstraint") (ConT c))
---                 [ DataInstD 
+                (AppT (ConT $ mkName "ReifiableConstraint") (ConT paramname))
                 [ NewtypeInstD 
                     []
                     (mkName "Def")
-                    [ ConT c, VarT tyVar]
-                    ( trace ("xx="++show ("Def_"++nameBase c)) $ RecC 
-                        (mkName $ "Def_"++nameBase c) 
+                    [ ConT paramname, VarT tyVar]
+                    ( RecC 
+                        (mkName $ "Def_"++nameBase paramname) 
                         [ (mkName $ nameBase fname ++ "_", NotStrict, insertTyVar (tyVar) ftype) 
                             | SigD fname ftype <- funcL
                         ]
@@ -983,15 +1057,15 @@ mkReifiableConstraint' c funcL = do
                     , AppT
                         (AppT
                             (ConT $ mkName "Def")
-                            (ConT c))
+                            (ConT paramname))
                         (VarT $ mkName "a")
                     ]
                 ]
                 (AppT 
-                    (ConT c) 
+                    (ConT paramname) 
                     (AppT 
                         (AppT 
-                            (AppT (ConT $ mkName "ConstraintLift") (ConT c))
+                            (AppT (ConT $ mkName "ConstraintLift") (ConT paramname))
                             (VarT tyVar))
                         (VarT $ mkName "s"))
                 )

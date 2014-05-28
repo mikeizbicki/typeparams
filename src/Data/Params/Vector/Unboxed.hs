@@ -35,33 +35,18 @@ import GHC.Prim
 import GHC.TypeLits
 
 import Data.Params
+import Data.Params.Instances
 import Data.Params.Vector
 import Data.Params.PseudoPrim
 import Unsafe.Coerce
 import Debug.Trace
 
 
-mkParamClasses ''Either
-mkGettersSetters ''Either
-mkTypeLens "a"
-mkTypeLens "b"
-mkHasDictionary_Star ''Param_a
-mkHasDictionary_Star ''Param_b
-mkViewParam_Star "a" ''Either
-mkViewParam_Star "b" ''Either
-mkApplyConstraint_Star "a" ''Either
-mkApplyConstraint_Star "b" ''Either
-
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
 
 data family Vector (len::Param Nat) elem
-mkParamClasses ''Vector
-mkGettersSetters ''Vector
-mkViewParam_Star "elem" ''Vector
-mkViewParam_Config "len" ''Vector
-mkApplyConstraint_Star "elem" ''Vector
-mkApplyConstraint_Config "len" ''Vector
+mkParams ''Vector
 
 instance (Show elem, VG.Vector (Vector len) elem) => Show (Vector len elem) where
     show v = "fromList "++show (VG.toList v)
@@ -79,7 +64,6 @@ data instance Vector (Static len) elem = Vector
     {-#UNPACK#-}!Int 
     {-#UNPACK#-}!(PseudoPrimInfo elem)
     {-#UNPACK#-}!ByteArray
-mkParams ''Vector
 
 type Veclen = 20
 type Numvec = 100
