@@ -32,6 +32,7 @@ mkReifiableConstraint "len"
 mkTypeLens "len"
 mkTypeLens "elem"
 mkHasDictionary_Star ''Param_elem
+mkHasDictionary_Config ''Param_len (ConT ''Int)
 
 -- mkWithParamClass "len" (ConT ''Int)
 

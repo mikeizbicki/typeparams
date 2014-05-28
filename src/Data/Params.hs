@@ -41,8 +41,11 @@ module Data.Params
     , mkStarParamClass
     , mkTypeLens
     , mkHasDictionary_Star
+    , mkHasDictionary_Config
     , mkViewParam_Star
+    , mkViewParam_Config
     , mkApplyConstraint_Star
+    , mkApplyConstraint_Config
 
     , mkParamInstance
     , mkReifiableConstraint
@@ -510,8 +513,6 @@ isStarParam paramname = do
     return $ case info of
         ClassI (ClassD _ _ xs _ _) _ -> length xs == 2 
 
--- return (str /= "len")
-
 -- | Creates a "TypeLens" for the given paramname.
 -- If paramname corresponds to a star parameter, then create a "TypeLens" of the form
 --
@@ -637,6 +638,52 @@ mkHasDictionary_Star paramname = return
         ]
     ]
 
+-- | Given the class Param_paramname that indexes a config parameter paramname
+-- create an instance of the form
+--
+-- > instance HasDictionary Param_paramname where
+-- >    type ParamType Param_paramname = paramtype
+-- >    newtype ParamDict Param_len = ParamDict_paramname { getParamDict_paramname :: paramtype } 
+-- >    typeLens2dictConstructor _ = ParamDict_paramname
+--
+mkHasDictionary_Config :: Name -> Type -> Q [Dec]
+mkHasDictionary_Config paramname paramtype = return
+    [ InstanceD
+        [ ]
+        ( AppT 
+            ( ConT $ mkName "HasDictionary" )
+            ( ConT paramname )
+        )
+        [ TySynInstD
+            ( mkName "ParamType" )
+            ( TySynEqn
+                [ ConT paramname ]
+                ( paramtype )
+            )
+        , NewtypeInstD
+            [ ]
+            ( mkName "ParamDict" )
+            [ ConT paramname ]
+            ( RecC
+                ( mkName $ "ParamDict_"++nameBase paramname )
+                [ ( mkName ("unParamDict_"++nameBase paramname)
+                  , NotStrict
+                  , paramtype
+                  ) 
+                ]
+            )
+            [ ]
+        , FunD
+            ( mkName "typeLens2dictConstructor" )
+            [ Clause
+                [ VarP $ mkName "x" ]
+                ( NormalB $ ConE $ mkName $ "ParamDict_"++nameBase paramname )
+                [ ]
+            ]
+        ]
+    ]
+
+
 -- | Given star parameter paramname and data type dataname that has parameter paramname,
 -- create type instances of the form
 --
@@ -679,13 +726,48 @@ mkApplyConstraint_Star paramstr dataname = do
         ]
 
 -- | Given star parameter paramname and data type dataname that has parameter paramname,
+-- create type instances of the form
+--
+-- > type instance ApplyConstraint_GetConstraint Param_paramname
+-- >    = ApplyConstraint_GetConstraint Param_paramname
+-- >
+-- > type instance ApplyConstraint_GetType Param_paramname (dataname v1 v2 ... paramname ... vk) 
+-- >    = ApplyConstraint_GetType Param_paramname (dataname v1 v2 ... paramname ... vk)
+-- 
+mkApplyConstraint_Config :: String -> Name -> Q [Dec]
+mkApplyConstraint_Config paramstr dataname = do
+    let paramname = mkName $ "Param_"++paramstr
+    info <- TH.reify dataname
+    let tyVarBndrL = case info of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+
+    return 
+        [ TySynInstD
+            ( mkName "ApplyConstraint_GetConstraint" )
+            ( TySynEqn
+                [ ConT paramname ]
+                ( ConT paramname )
+            )
+        , TySynInstD
+            ( mkName "ApplyConstraint_GetType" )
+            ( TySynEqn
+                [ ConT paramname 
+                , applyTyVarBndrL dataname tyVarBndrL
+                ]
+                ( applyTyVarBndrL dataname tyVarBndrL )
+            )        
+        ]
+
+-- | Given star parameter paramname and data type dataname that has parameter paramname,
 -- create an instance of the form
 --
--- instance 
---     ( ViewParam p paramname 
---     ) => ViewParam (Param_paramname p) (dataname v1 v2 ... paramname ... vk)
---         where
---     viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: paramname)
+-- > instance 
+-- >     ( ViewParam p paramname 
+-- >     ) => ViewParam (Param_paramname p) (dataname v1 v2 ... paramname ... vk)
+-- >         where
+-- >     viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: paramname)
 --
 mkViewParam_Star :: String -> Name -> Q [Dec]
 mkViewParam_Star paramname dataname = do
@@ -730,6 +812,50 @@ mkViewParam_Star paramname dataname = do
                         ( SigE
                             ( VarE $ mkName "undefined" )
                             ( VarT $ mkName paramname )
+                        )
+                    )
+                    [ ]
+                ] 
+            ]
+        ]
+
+-- | Given star parameter paramname and data type dataname that has parameter paramname,
+-- create an instance of the form
+--
+-- > instance
+-- >     ( Param_paramname (dataname v1 v2 ... paramname ... vk)
+-- >     ) => ViewParam Param_paramname (dataname v1 v2 ... paramname ... vk) where
+-- >     viewParam _ _ = getParam_paramname (undefined::dataname v1 v2 ... paramname ... vk)
+--
+mkViewParam_Config :: String -> Name -> Q [Dec]
+mkViewParam_Config paramstr dataname = do
+    info <- TH.reify dataname
+    let tyVarBndrL = case info of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+    return 
+        [ InstanceD
+            [ ClassP 
+                ( mkName $ "Param_"++paramstr) 
+                [ applyTyVarBndrL dataname tyVarBndrL ]
+            ]
+            ( AppT 
+                ( AppT
+                    ( ConT $ mkName "ViewParam" )
+                    (ConT $ mkName $ "Param_"++paramstr) 
+                )
+                ( applyTyVarBndrL dataname tyVarBndrL )
+            )
+            [ FunD
+                ( mkName "viewParam" )
+                [ Clause
+                    [ VarP $ mkName "x", VarP $ mkName "y" ]
+                    ( NormalB $ AppE
+                        ( VarE $ mkName $ "getParam_"++paramstr)
+                        ( SigE
+                            ( VarE $ mkName "undefined" )
+                            ( applyTyVarBndrL dataname tyVarBndrL )
                         )
                     )
                     [ ]

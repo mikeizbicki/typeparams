@@ -59,7 +59,9 @@ data family Vector (len::Param Nat) elem
 mkParamClasses ''Vector
 mkGettersSetters ''Vector
 mkViewParam_Star "elem" ''Vector
+mkViewParam_Config "len" ''Vector
 mkApplyConstraint_Star "elem" ''Vector
+mkApplyConstraint_Config "len" ''Vector
 
 instance (Show elem, VG.Vector (Vector len) elem) => Show (Vector len elem) where
     show v = "fromList "++show (VG.toList v)
@@ -246,95 +248,6 @@ instance
         = PseudoPrimInfo_VectorStatic $ mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi
 
 -------------------
-
--- len
-
--- type instance ApplyConstraint_GetConstraint Param_len = ViewParam Param_len
-type instance ApplyConstraint_GetConstraint Param_len = Param_len
-type instance ApplyConstraint_GetType Param_len m = m
-
--- type instance GetParam Param_len (Vector len elem) = len
--- type instance SetParam Param_len len' (Vector len elem) = Vector len' elem
--- 
--- _len :: TypeLens Base Param_len
--- _len = TypeLens
-
-instance HasDictionary Param_len where
-    type ParamType Param_len = Int
-    newtype ParamDict Param_len = ParamDict_Vector_len' { getParamDict_Vector_len' :: Int } 
-    typeLens2dictConstructor _ = ParamDict_Vector_len'
-
-instance
-    ( Param_len (Vector len elem)
-    ) => ViewParam Param_len (Vector len elem) where
-    viewParam _ _ = getParam_len (undefined::Vector len elem)
-
--- instance ReifiableConstraint (ViewParam Param_len) where
---     newtype Def (ViewParam Param_len) a = Def_Param_len { def_Param_len :: Int }
---     reifiedIns = Sub Dict
--- 
--- instance 
---     ( Reifies s (Def (ViewParam Param_len) a) 
---     ) => ViewParam Param_len (ConstraintLift (ViewParam Param_len) a s) where
---     viewParam _ a = def_Param_len (reflect a)
--- 
--- instance
---     ( KnownNat len
---     ) => ViewParam Param_len (Vector (Static len) elem) where
---     viewParam _ _ = fromIntegral $ natVal (Proxy::Proxy len)
-
--- instance
---     (
---     ) => ViewParam Param_len (Vector RunTime elem) 
-
--- newtype instance ParamDict Param_len =
---     ParamDict_Vector_len' { getParamDict_Vector_len' :: Int } 
-
--- elem
-
--- type instance ApplyConstraint_GetConstraint (Param_elem p) = ApplyConstraint_GetConstraint p 
--- type instance ApplyConstraint_GetType (Param_elem p) (Vector len elem) = ApplyConstraint_GetType p elem
-
--- _elem :: TypeLens p (Param_elem p)
--- _elem = TypeLens
-
--- instance 
---     ( HasDictionary p
---     ) => HasDictionary (Param_elem p) 
---         where
---     type ParamType (Param_elem p) = ParamType p 
---     typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
-
--- instance 
---     ( ViewParam p elem
---     ) => ViewParam (Param_elem p) (Vector len elem)
---         where
---     viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: elem)
-
--- class Param_elem (p :: * -> Constraint) s 
--- instance p elem => Param_elem p (Vector len elem)
-
--- newtype instance ParamDict (Param_elem p) =
---     ParamDict_Vector_elem { getParamDict_Vector_elem :: ParamDict p }
-
--- Either 
-
--- class HasParam_a t where
---     _a :: ParamDict p (GetParam HasParam_a t) -> ParamDict (Param_a p) t
-
--- type instance GetParam HasParam_a (Either a b) = a
--- type instance SetParam HasParam_a a' (Either a b) = Either a' b
--- instance HasParam_a (Either a b) where
---     _a = ParamDict_Either_a
-
--- _left
--- _left = ParamDict_Either_a
-
--- newtype instance ParamDict (Param_a p) (Either a b) =
---     ParamDict_Either_a { getParamDict_Either_a :: ParamDict p a }
--- 
--- newtype instance ParamDict (ApplyConstraintTo_b p) (Either a b) =
---     ParamDict_Either_b { getParamDict_Either_b :: ParamDict p b }
 
 -- EndoFunctor
 
