@@ -1,4 +1,4 @@
-{-# OPTION_GHC -O2 -fllvm #-}
+{-# OPTIONS_GHC -O2 -fllvm -mavx512f #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -6,6 +6,7 @@
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE FlexibleContexts #-}
 
+import Control.Category
 import Control.DeepSeq
 import Control.Monad
 import Control.Monad.Random
@@ -21,6 +22,7 @@ import qualified Data.Params.Vector.Storable as VPS
 import qualified Data.Params.Vector.Storable as VPSR
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector as V
+import Prelude hiding ((.),id)
 
 import GHC.Float
 import GHC.Int
@@ -113,9 +115,9 @@ main = do
     let vpuavpus2 = VG.fromList $ map VG.fromList dimLL2 
             :: VPU.Vector Automatic (VPU.Vector (Static Veclen) NumType)
 
-    let vpuavpur1 = VPU.withParam3 (VPU._elem.VPU._len $ veclen) $ VG.fromList $ map VG.fromList dimLL1
+    let vpuavpur1 = VPU.with1Param (VPU._elem . VPU._len) veclen $ VG.fromList $ map VG.fromList dimLL1
             :: VPU.Vector Automatic (VPU.Vector RunTime NumType)
-    let vpuavpur2 = VPU.withParam3 (VPU._elem.VPU._len $ veclen) $ VG.fromList $ map VG.fromList dimLL2
+    let vpuavpur2 = VPU.with1Param (VPU._elem . VPU._len) veclen $ VG.fromList $ map VG.fromList dimLL2
             :: VPU.Vector Automatic (VPU.Vector RunTime NumType)
 
     let vpusvpus1 = VG.fromList $ map VG.fromList dimLL1 
@@ -138,15 +140,11 @@ main = do
     let vpsrvpsr2 = VG.fromList $ map VG.fromList dimLL2 
             :: VPSR.Vector (Static Numvec) (VPSR.Vector (Static Veclen) NumType)
 
-    let vpusvpua1 = VPU.ss2sa $ (VG.fromList $ map VG.fromList dimLL1
-            :: VPU.Vector (Static Numvec) (VPU.Vector (Static Veclen) NumType))
-        vpusvpua2 = VPU.ss2sa $ (VG.fromList $ map VG.fromList dimLL2
-            :: VPU.Vector (Static Numvec) (VPU.Vector (Static Veclen) NumType))
+    let vpusvpua1 = VPU.staticToAutomatic (VPU._elem.VPU._len) vpusvpus1
+        vpusvpua2 = VPU.staticToAutomatic (VPU._elem.VPU._len) vpusvpus2
 
-    let vpuavpua1 = VPU.ss2aa $ (VG.fromList $ map VG.fromList dimLL1
-            :: VPU.Vector (Static Numvec) (VPU.Vector (Static Veclen) NumType))
-        vpuavpua2 = VPU.ss2aa $ (VG.fromList $ map VG.fromList dimLL2
-            :: VPU.Vector (Static Numvec) (VPU.Vector (Static Veclen) NumType))
+    let vpuavpua1 = VPU.staticToAutomatic VPU._len vpusvpua1
+        vpuavpua2 = VPU.staticToAutomatic VPU._len vpusvpua2
 
     let vvpus1 = VG.fromList $ map VG.fromList dimLL1 
             :: V.Vector (VPU.Vector (Static Veclen) NumType)
