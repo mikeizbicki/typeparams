@@ -1,11 +1,12 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Data.Params
     ( 
 
     -- * Basic 
-    Param (..)
+    Config (..)
     , mkParams
 
     , with1Param
@@ -13,6 +14,11 @@ module Data.Params
 
     , mkWith1Param
     , mkApWith1Param
+
+    , mkApWith2Param
+    , apWith2Param
+    , mkApWith3Param
+    , apWith3Param
 
     -- ** Classes
     , HasDictionary (..)
@@ -36,7 +42,6 @@ module Data.Params
     -- medication afterward.
 
     -- ** Template haskell generating code
-    , mkParamClasses
     , mkParamClass_Star
     , mkParamClass_Config
     , mkTypeLens_Star
@@ -97,6 +102,7 @@ import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
 import Unsafe.Coerce
+import GHC.Base (Int(..))
 
 import Debug.Trace
 import Prelude hiding ((.),id)
@@ -107,32 +113,37 @@ import Prelude hiding ((.),id)
 -- It has proper inlining to ensure that the 'fromIntegral' gets computed
 -- at compile time.
 
-{-# INLINE [1] intparam #-}
+-- {-# INLINE [2] intparam #-}
+-- {-# NOINLINE intparam #-}
+{-# INLINE intparam #-}
 intparam :: forall n. KnownNat n => Proxy (n::Nat) -> Int
 intparam _ = fromIntegral $ natVal (Proxy::Proxy n)
 
-return $ 
-    [ PragmaD $ RuleP 
-        ("intparam "++show i)
-        [ TypedRuleVar 
-            (mkName "s")
-            (AppT (ConT (mkName "Proxy")) (LitT $ NumTyLit i))
-        ]
-        (AppE 
-            (VarE $ mkName "intparam")
-            (VarE $ mkName "s")
-        )
-        (LitE $ IntegerL i)
-        AllPhases
-    | i <- [0..1000]
-    ]
+-- return $ 
+--     [ PragmaD $ RuleP 
+--         ("intparam "++show i)
+--         [ ]
+--         ( AppE 
+--             ( VarE $ mkName "intparam" )
+--             ( SigE
+--                 ( ConE $ mkName "Proxy" )
+--                 ( AppT
+--                     ( ConT $ mkName "Proxy" )
+--                     ( LitT ( NumTyLit i ) )
+--                 )
+--             )
+--         )
+--         ( AppE ( ConE $ mkName "I#" ) (LitE $ IntPrimL i ) )
+--         AllPhases
+--     | i <- [0..10000]
+--     ]
 
 -------------------------------------------------------------------------------
 -- types
 
 -- | (Kind) Specifies that the type parameter can be known either statically
 -- or dynamically.
-data Param a 
+data Config a 
     = Static a -- ^ The parameter is statically set to 'a'
     | RunTime  -- ^ The parameter is determined at run time using the 'withParam' functions
     | Automatic -- ^ The parameter is determined at run time and the value is inferred automatically without user specification
@@ -168,6 +179,9 @@ apUsing d m f = reify d $ \(_ :: Proxy s) ->
             where proof = unsafeCoerceConstraint :: p (ConstraintLift p a s) :- p a
     in (f m) \\ replaceProof 
 
+apUsing' :: forall p a1 a2 b. ReifiableConstraint p => Def p a2 -> (p a2 => a1) -> (p a2 => a1 -> b) -> b
+apUsing' def = unsafeCoerce $ apUsing def
+    
 apUsing2 :: forall p1 p2 a a1 a2 b. 
     ( ReifiableConstraint p1
     , ReifiableConstraint p2
@@ -185,9 +199,95 @@ apUsing2 d1 d2 m f = reify d2 $ \(_ :: Proxy s2) -> reify d1 $ \(_ :: Proxy s1) 
             where proof = unsafeCoerceConstraint :: p2 (ConstraintLift p2 a2 s2) :- p2 a2
     in (f m) \\ replaceProof \\ replaceProof2
 
-apUsing' :: forall p a1 a2 b. ReifiableConstraint p => Def p a2 -> (p a2 => a1) -> (p a2 => a1 -> b) -> b
-apUsing' def = unsafeCoerce $ apUsing def
-    
+apUsing3 :: forall p1 p2 p3 a a1 a2 a3 b. 
+    ( ReifiableConstraint p1
+    , ReifiableConstraint p2
+    , ReifiableConstraint p3
+    ) => Def p1 a1 
+      -> Def p2 a2
+      -> Def p3 a3
+      -> ((p1 a1,p2 a2,p3 a3) => a) 
+      -> ((p1 a1,p2 a2,p3 a3) => a -> b) 
+      -> b
+apUsing3 d1 d2 d3 m f = reify d3 $ \(_ :: Proxy s3) -> 
+                        reify d2 $ \(_ :: Proxy s2) -> 
+                        reify d1 $ \(_ :: Proxy s1) ->
+    let replaceProof :: Reifies s1 (Def p1 a1) :- p1 a1
+        replaceProof = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p1 (ConstraintLift p1 a1 s1) :- p1 a1
+        replaceProof2 :: Reifies s2 (Def p2 a2) :- p2 a2
+        replaceProof2 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p2 (ConstraintLift p2 a2 s2) :- p2 a2
+        replaceProof3 :: Reifies s3 (Def p3 a3) :- p3 a3
+        replaceProof3 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p3 (ConstraintLift p3 a3 s3) :- p3 a3
+    in (f m) \\ replaceProof \\ replaceProof2 \\ replaceProof3
+
+apUsing4 :: forall p1 p2 p3 p4 a a1 a2 a3 a4 b. 
+    ( ReifiableConstraint p1
+    , ReifiableConstraint p2
+    , ReifiableConstraint p3
+    , ReifiableConstraint p4
+    ) => Def p1 a1 
+      -> Def p2 a2
+      -> Def p3 a3
+      -> Def p4 a4
+      -> ((p1 a1,p2 a2,p3 a3,p4 a4) => a) 
+      -> ((p1 a1,p2 a2,p3 a3,p4 a4) => a -> b) 
+      -> b
+apUsing4 d1 d2 d3 d4 m f = reify d4 $ \(_ :: Proxy s4) ->
+                        reify d3 $ \(_ :: Proxy s3) -> 
+                        reify d2 $ \(_ :: Proxy s2) -> 
+                        reify d1 $ \(_ :: Proxy s1) ->
+    let replaceProof :: Reifies s1 (Def p1 a1) :- p1 a1
+        replaceProof = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p1 (ConstraintLift p1 a1 s1) :- p1 a1
+        replaceProof2 :: Reifies s2 (Def p2 a2) :- p2 a2
+        replaceProof2 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p2 (ConstraintLift p2 a2 s2) :- p2 a2
+        replaceProof3 :: Reifies s3 (Def p3 a3) :- p3 a3
+        replaceProof3 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p3 (ConstraintLift p3 a3 s3) :- p3 a3
+        replaceProof4 :: Reifies s4 (Def p4 a4) :- p4 a4
+        replaceProof4 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p4 (ConstraintLift p4 a4 s4) :- p4 a4
+    in (f m) \\ replaceProof \\ replaceProof2 \\ replaceProof3 \\ replaceProof4
+
+apUsing5 :: forall p1 p2 p3 p4 p5 a a1 a2 a3 a4 a5 b. 
+    ( ReifiableConstraint p1
+    , ReifiableConstraint p2
+    , ReifiableConstraint p3
+    , ReifiableConstraint p4
+    , ReifiableConstraint p5
+    ) => Def p1 a1 
+      -> Def p2 a2
+      -> Def p3 a3
+      -> Def p4 a4
+      -> Def p5 a5
+      -> ((p1 a1,p2 a2,p3 a3,p4 a4,p5 a5) => a) 
+      -> ((p1 a1,p2 a2,p3 a3,p4 a4,p5 a5) => a -> b) 
+      -> b
+apUsing5 d1 d2 d3 d4 d5 m f = reify d5 $ \(_ :: Proxy s5) ->
+                        reify d4 $ \(_ :: Proxy s4) ->
+                        reify d3 $ \(_ :: Proxy s3) -> 
+                        reify d2 $ \(_ :: Proxy s2) -> 
+                        reify d1 $ \(_ :: Proxy s1) ->
+    let replaceProof :: Reifies s1 (Def p1 a1) :- p1 a1
+        replaceProof = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p1 (ConstraintLift p1 a1 s1) :- p1 a1
+        replaceProof2 :: Reifies s2 (Def p2 a2) :- p2 a2
+        replaceProof2 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p2 (ConstraintLift p2 a2 s2) :- p2 a2
+        replaceProof3 :: Reifies s3 (Def p3 a3) :- p3 a3
+        replaceProof3 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p3 (ConstraintLift p3 a3 s3) :- p3 a3
+        replaceProof4 :: Reifies s4 (Def p4 a4) :- p4 a4
+        replaceProof4 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p4 (ConstraintLift p4 a4 s4) :- p4 a4
+        replaceProof5 :: Reifies s5 (Def p5 a5) :- p5 a5
+        replaceProof5 = trans proof reifiedIns
+            where proof = unsafeCoerceConstraint :: p5 (ConstraintLift p5 a5 s5) :- p5 a5
+    in (f m) \\ replaceProof \\ replaceProof2 \\ replaceProof3 \\ replaceProof4 \\ replaceProof5
 -------------------
 -- for external use
 
@@ -266,17 +366,83 @@ apWith1Param lens v = flip $ apUsing'
     where
         p = typeLens2dictConstructor lens v :: ParamDict p 
 
--- apWith2Param ::
---     ( ReifiableConstraint p2
---     , ReifiableConstraint p4
---     ) => ParamDict p1 p2 m1 m2
---       -> ParamDict p3 p4 m1 m3
---       -> ((p2 m2,p4 m3) => m1 -> n)
---       -> ((p2 m2,p4 m3) => m1)
---       -> n
--- apWith2Param p1 p2 = flip $ apUsing2 
---     (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p1)) 
---     (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p2))
+mkApWith2Param :: proxy m -> proxy n -> (
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
+    , HasDictionary p1
+    , HasDictionary p2
+    ) => TypeLens Base p1
+      -> ParamType p1
+      -> TypeLens Base p2
+      -> ParamType p2
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m) => m -> n)
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m) => m)
+      -> n
+      )
+mkApWith2Param _ _ = apWith2Param
+
+apWith2Param :: forall p1 p2 m n.
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
+    , HasDictionary p1
+    , HasDictionary p2
+    ) => TypeLens Base p1
+      -> ParamType p1
+      -> TypeLens Base p2
+      -> ParamType p2
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m) => m -> n)
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m) => m)
+      -> n
+apWith2Param lens1 v1 lens2 v2 = flip $ apUsing2
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p1)) 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p2))
+    where
+        p1 = typeLens2dictConstructor lens1 v1 :: ParamDict p1
+        p2 = typeLens2dictConstructor lens2 v2 :: ParamDict p2
+
+mkApWith3Param :: proxy m -> proxy n -> (
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p3)
+    , HasDictionary p1
+    , HasDictionary p2
+    , HasDictionary p3
+    ) => TypeLens Base p1
+      -> ParamType p1
+      -> TypeLens Base p2
+      -> ParamType p2
+      -> TypeLens Base p3
+      -> ParamType p3
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m, ApplyConstraint p3 m) => m -> n)
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m, ApplyConstraint p3 m) => m)
+      -> n
+      )
+mkApWith3Param _ _ = apWith3Param
+
+apWith3Param :: forall p1 p2 p3 m n.
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p3)
+    , HasDictionary p1
+    , HasDictionary p2
+    , HasDictionary p3
+    ) => TypeLens Base p1
+      -> ParamType p1
+      -> TypeLens Base p2
+      -> ParamType p2
+      -> TypeLens Base p3
+      -> ParamType p3
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m, ApplyConstraint p3 m) => m -> n)
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m, ApplyConstraint p3 m) => m)
+      -> n
+apWith3Param lens1 v1 lens2 v2 lens3 v3 = flip $ apUsing3
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p1)) 
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p2))
+    (unsafeCoerce DummyNewtype (\x -> unsafeCoerce p3))
+    where
+        p1 = typeLens2dictConstructor lens1 v1 :: ParamDict p1
+        p2 = typeLens2dictConstructor lens2 v2 :: ParamDict p2
+        p3 = typeLens2dictConstructor lens3 v3 :: ParamDict p3
 
 -------------------------------------------------------------------------------
 -- template haskell
@@ -288,29 +454,6 @@ apWith1Param lens v = flip $ apUsing'
 -- > mkParams ''NearestNeighbor
 --
 
--- mkParams :: Name -> Q [Dec]
--- mkParams dataName = do
---     tmp <- TH.reify dataName
---     let varL = case tmp of
---             TyConI (NewtypeD _ _ xs _ _) -> xs
---             TyConI (DataD _ _ xs _ _) -> xs
---             FamilyI (FamilyD _ _ xs _) _ -> xs
--- 
---     let varL' = map mapgo $ filter filtergo varL
---         filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
---         filtergo _ = False
---         mapgo (KindedTV name (AppT _ k)) = 
---             (nameBase name,k,kind2type k)
--- 
---     paramClass <- liftM concat $ mapM (\(n,k,t) -> mkParamClass_Config n t) varL' 
---     reifiableC <- liftM concat $ mapM (\(n,k,t) -> mkReifiableConstraint' 
---             (mkName $ "Param_"++n) 
---             [SigD (mkName $ "getParam_"++n) $ AppT (AppT ArrowT (VarT $ mkName "m")) t ])
---          varL' 
---     paramInsts <- liftM concat $ mapM (\(n,k,t) -> mkParamInstance n t dataName) varL' 
--- 
---     return $ paramClass++reifiableC++paramInsts 
-
 mkParams :: Name -> Q [Dec]
 mkParams dataname = do
     info <- TH.reify dataname
@@ -320,7 +463,7 @@ mkParams dataname = do
             FamilyI (FamilyD _ _ xs _) _ -> xs
 
     let (tyVarBndrL_Config,tyVarBndrL_Star) = partition filtergo tyVarBndrL 
-        filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
+        filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Config"
         filtergo _ = False
     
     getterssetters <- mkGettersSetters dataname
@@ -348,7 +491,8 @@ mkParams dataname = do
             , mkParamClass_Star paramstr
             ]
 
-    return $ getterssetters 
+    trace ("tyVarBndrL_Config="++show tyVarBndrL_Config++"\ntyVarBndrL_Star="++show tyVarBndrL_Star) $ 
+        return $ getterssetters 
         ++ (concat $ concat $ configparams) 
         ++ (concat $ concat $ starparams)
 
@@ -357,7 +501,7 @@ mkParams dataname = do
 
 kind2type :: Type -> Type
 kind2type (AppT ListT t) = AppT ListT $ kind2type t
-kind2type (AppT (ConT c) t) = if nameBase c=="Param"
+kind2type (AppT (ConT c) t) = if nameBase c=="Config"
     then kind2type t
     else error "kind2type nameBase c"
 kind2type (ConT n) = ConT $ mkName $ case nameBase n of
@@ -475,37 +619,11 @@ mkGettersSetters dataName = do
 
     return $ getters++setters
 
--- | Given a data type of the form
---
--- > data Type (v1 :: Param k1) v2 = ...
---
--- creates the following "Param_" classes that uniquely identify the parameters
---
--- > class Param_v1 t where getParam_v1 :: t -> kind2type k1
--- > class Param_v2 t where getParam_v2 :: t -> ()
---
-mkParamClasses :: Name -> Q [Dec]
-mkParamClasses dataName = do
-    c <- TH.reify dataName
-    let tyVarBndrL = case c of
-            TyConI (NewtypeD _ _ xs _ _) -> xs
-            TyConI (DataD _ _ xs _ _) -> xs
-            FamilyI (FamilyD _ _ xs _) _ -> xs
-
-    let (tyVarBndrL_config,tyVarBndrL_notconfig) = partition filtergo tyVarBndrL 
-        filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Param"
-        filtergo _ = False
-
-    liftM concat $ forM tyVarBndrL_config $ \(KindedTV name (AppT _ k)) -> 
-        mkParamClass_Config (nameBase name) (kind2type k)
-
-    liftM concat $ forM tyVarBndrL_notconfig $ \ tv ->
-        mkParamClass_Star (tyVarBndr2str tv)
-
 -- | Creates classes of the form
 --
 -- > class Param_paramname t where
 -- >     getParam_paramname :: t -> paramT
+-- >     {-# INLINE getParam_paramname #-}
 --
 -- NOTE: this function should probably not be called directly
 mkParamClass_Config :: String -> Type -> Q [Dec]
@@ -638,7 +756,11 @@ class Param_Dummy t
 -- >     ) => HasDictionary (Param_paramname p)
 -- >         where
 -- >     type ParamType (Param_paramname p) = ParamType p
+-- >     newtype ParamDict (Param_paramname p) = ParamDict_paramname 
+-- >        { unParamDict_paramname :: ParamType (Param_paramname) }
 -- >     typeLens2dictConstructor _ = coerceParamDict $ typeLens2dictConstructor (TypeLens::TypeLens Base p)
+-- >     {#- INLINE typeLens2dictConstructor #-}
+--
 mkHasDictionary_Star :: String -> Q [Dec]
 mkHasDictionary_Star paramstr = do
     let paramname = mkName $ "Param_"++paramstr
@@ -700,6 +822,11 @@ mkHasDictionary_Star paramstr = do
                     )
                     [ ]
                 ]
+            , PragmaD $ InlineP
+                ( mkName "typeLens2dictConstructor" )
+                Inline
+                FunLike
+                AllPhases
             ]
         ]
 
@@ -757,6 +884,11 @@ mkHasDictionary_Config paramstr paramtype = do
                     ( NormalB $ ConE $ mkName $ "ParamDict_"++nameBase paramname )
                     [ ]
                 ]
+            , PragmaD $ InlineP
+                ( mkName $ "typeLens2dictConstructor" )
+                Inline
+                FunLike
+                AllPhases
             ]
         ]
 
@@ -847,7 +979,7 @@ mkApplyConstraint_Config paramstr dataname = do
 -- >     viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: paramname)
 --
 mkViewParam_Star :: String -> Name -> Q [Dec]
-mkViewParam_Star paramstr dataname = trace ("mkViewParam_Star; paramstr="++paramstr++"; dataname="++show dataname) $ do
+mkViewParam_Star paramstr dataname = do
     let paramname = mkName $ "Param_"++paramstr
 
     info <- TH.reify dataname
@@ -896,6 +1028,11 @@ mkViewParam_Star paramstr dataname = trace ("mkViewParam_Star; paramstr="++param
                     )
                     [ ]
                 ] 
+            , PragmaD $ InlineP
+                ( mkName $ "viewParam" )
+                Inline
+                FunLike
+                AllPhases
             ]
         ]
 
@@ -932,14 +1069,22 @@ mkViewParam_Config paramstr dataname = do
                 [ Clause
                     [ VarP $ mkName "x", VarP $ mkName "y" ]
                     ( NormalB $ AppE
-                        ( VarE $ mkName $ "getParam_"++paramstr)
-                        ( SigE
-                            ( VarE $ mkName "undefined" )
-                            ( applyTyVarBndrL dataname tyVarBndrL )
+                        ( VarE $ kind2convert $ AppT (ConT $ mkName "ParamType") (ConT $ mkName $ "Param_"++paramstr) )
+                        ( AppE
+                            ( VarE $ mkName $ "getParam_"++paramstr)
+                            ( SigE
+                                ( VarE $ mkName "undefined" )
+                                ( applyTyVarBndrL dataname tyVarBndrL )
+                            )
                         )
                     )
                     [ ]
                 ] 
+            , PragmaD $ InlineP
+                ( mkName $ "viewParam" )
+                Inline
+                FunLike
+                AllPhases
             ]
         ]
 
@@ -950,12 +1095,11 @@ mkViewParam_Config paramstr dataname = do
 --
 mkParamInstance :: String -> Type -> Name -> Q [Dec]
 mkParamInstance paramStr paramType dataName  = do
-    c <- TH.reify dataName
-    let tyVarL = case c of
+    info <- TH.reify dataName
+    let tyVarL = case info of
             TyConI (NewtypeD _ _ xs _ _) -> xs
             TyConI (DataD _ _ xs _ _ ) -> xs
             FamilyI (FamilyD _ _ xs _) _ -> xs
-            otherwise -> error $ "c = "++show c
 
     let tyVarL' = filter filtergo tyVarL
         filtergo (KindedTV n k) = nameBase n==paramStr
@@ -993,6 +1137,11 @@ mkParamInstance paramStr paramType dataName  = do
                     )
                     []
                 ]
+            , PragmaD $ InlineP
+                ( mkName $ "getParam_"++nameBase paramName )
+                Inline
+                FunLike
+                AllPhases
             ]
         ]
     where
@@ -1024,8 +1173,16 @@ mkReifiableConstraint paramstr = do
 mkReifiableConstraint' :: String -> [Dec] -> Q [Dec] 
 mkReifiableConstraint' paramstr funcL = do
     let paramname = mkName $ "Param_"++paramstr
-    isDef <- isInstance (mkName "ReifiableConstraint") [ConT paramname]
-    return $ if isDef
+--     isDef <- isInstance (mkName "ReifiableConstraint") [ConT paramname]
+    alreadyInstance <- do
+        isDef <- lookupTypeName (nameBase paramname)
+        case isDef of
+            Nothing -> return False
+            Just _ -> isInstance 
+                ( mkName "ReifiableConstraint" ) 
+                [ ConT paramname ]
+
+    return $ if alreadyInstance
         then [ ]
         else [ InstanceD 
                 []
@@ -1069,25 +1226,32 @@ mkReifiableConstraint' paramstr funcL = do
                             (VarT tyVar))
                         (VarT $ mkName "s"))
                 )
-                [ FunD 
-                    fname 
-                    [ Clause
-                        [ VarP $ mkName "a" ]
-                        (NormalB $
-                            AppE
-                                (AppE
-                                    (VarE $ mkName $ nameBase fname++"_")
-                                    (AppE 
-                                        (VarE (mkName "reflect"))
-                                        (VarE (mkName "a"))))
-                                (AppE
-                                    (VarE $ mkName "lower")
-                                    (VarE $ mkName "a"))
-                        )
-                        [] 
+                ( concat [  
+                    [ FunD 
+                        fname 
+                        [ Clause
+                            [ VarP $ mkName "a" ]
+                            (NormalB $
+                                AppE
+                                    (AppE
+                                        (VarE $ mkName $ nameBase fname++"_")
+                                        (AppE 
+                                            (VarE (mkName "reflect"))
+                                            (VarE (mkName "a"))))
+                                    (AppE
+                                        (VarE $ mkName "lower")
+                                        (VarE $ mkName "a"))
+                            )
+                            [] 
+                        ]
+                    , PragmaD $ InlineP
+                        fname 
+                        Inline
+                        FunLike
+                        AllPhases
                     ]
-                    | SigD fname ftype <- funcL
-                ]
+                | SigD fname ftype <- funcL
+                ] )
             ]
     where
 

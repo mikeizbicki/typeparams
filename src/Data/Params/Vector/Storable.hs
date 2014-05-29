@@ -98,7 +98,7 @@ mallocVector =
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
 
-data family Vector (len::Param Nat) elem
+data family Vector (len::Config Nat) elem
 mkParams ''Vector
 
 instance (Show elem, VG.Vector (Vector len) elem) => Show (Vector len elem) where
@@ -223,7 +223,7 @@ instance
 
 type instance VG.Mutable (Vector len) = MVector len
 
-data family MVector (len::Param Nat) s elem
+data family MVector (len::Config Nat) s elem
 
 ---------------------------------------
 -- fixed size

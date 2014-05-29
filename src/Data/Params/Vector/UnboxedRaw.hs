@@ -42,7 +42,7 @@ import Data.Params.Vector
 -------------------------------------------------------------------------------
 -- immutable automatically sized vector
 
-data family Vector (len::Param Nat) elem
+data family Vector (len::Config Nat) elem
 
 instance (Show elem, VG.Vector (Vector len) elem) => Show (Vector len elem) where
     show v = "fromList "++show (VG.toList v)
@@ -131,7 +131,7 @@ instance Prim elem => VG.Vector (Vector Automatic) elem where
 
 type instance VG.Mutable (Vector len) = MVector len
 
-data family MVector (len::Param Nat) s elem
+data family MVector (len::Config Nat) s elem
 
 ---------------------------------------
 -- fixed size

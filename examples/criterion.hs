@@ -35,12 +35,14 @@ import Data.Params.Vector
 -- criterion tests
 
 -- | size of each vector to test; must be divisible by 4
-type Veclen = 400
-veclen = fromIntegral $ natVal (Proxy::Proxy Veclen)
+type Veclen = 416
+veclen = intparam (Proxy::Proxy Veclen)
+-- veclen = fromIntegral $ natVal (Proxy::Proxy Veclen)
 
 -- | number of vectors in 2d tests
-type Numvec = 100
-numvec = fromIntegral $ natVal (Proxy::Proxy Numvec)
+type Numvec = 1601
+numvec = intparam (Proxy::Proxy Numvec)
+-- numvec = fromIntegral $ natVal (Proxy::Proxy Numvec)
 
 -- | numeric type to test against
 type NumType = Float

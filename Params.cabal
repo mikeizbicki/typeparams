@@ -43,6 +43,7 @@ Library
         Data.Params
         Data.Params.Frac
         Data.Params.PseudoPrim
+        Data.Params.Instances
         Data.Params.Vector
         Data.Params.Vector.Storable
         Data.Params.Vector.StorableRaw

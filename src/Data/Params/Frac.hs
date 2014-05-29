@@ -2,7 +2,7 @@
 
 -- | Provides type level fractions based on type nats
 module Data.Params.Frac
-    ( Frac
+    ( Frac (..)
     , KnownFrac (..)
     , fracVal
     )
