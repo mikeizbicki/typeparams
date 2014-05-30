@@ -1,4 +1,4 @@
-Name:                params
+Name:                typeparams
 Version:             0.0.1.0
 Synopsis:            Efficient parameters representation at the type or value level
 Description:         
