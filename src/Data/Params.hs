@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Data.Params
@@ -33,6 +34,11 @@ module Data.Params
     , Base
     , ApplyConstraint_GetType
     , ApplyConstraint_GetConstraint
+
+    , mkRuleFrac
+    , intparam 
+    , floatparam
+    , Float (..)
 
     -- * Advanced 
     -- | The code in this section is only for advanced users when the 'mkParams'
@@ -73,7 +79,6 @@ module Data.Params
     , apUsing
     , apUsing2
     , apUsing'
-    , intparam 
 
     -- * Modules
     , module GHC.TypeLits
@@ -91,10 +96,12 @@ import Control.Monad
 import Data.Proxy
 import Data.List (partition)
 import Data.Monoid
+import Data.Ratio
 import Language.Haskell.TH hiding (reify)
 import Language.Haskell.TH.Syntax hiding (reify)
 import qualified Language.Haskell.TH as TH
 
+import GHC.Float
 import GHC.TypeLits
 import Data.Params.Frac
 
@@ -113,12 +120,9 @@ import Prelude hiding ((.),id)
 -- It has proper inlining to ensure that the 'fromIntegral' gets computed
 -- at compile time.
 
--- {-# INLINE [2] intparam #-}
--- {-# NOINLINE intparam #-}
 {-# INLINE intparam #-}
 intparam :: forall n. KnownNat n => Proxy (n::Nat) -> Int
 intparam _ = fromIntegral $ natVal (Proxy::Proxy n)
-
 -- return $ 
 --     [ PragmaD $ RuleP 
 --         ("intparam "++show i)
@@ -137,6 +141,44 @@ intparam _ = fromIntegral $ natVal (Proxy::Proxy n)
 --         AllPhases
 --     | i <- [0..10000]
 --     ]
+
+
+{-# NOINLINE floatparam #-}
+floatparam :: forall n. KnownFrac n => Proxy (n::Frac) -> Float
+floatparam _ = fromRational $ fracVal (Proxy::Proxy n)
+
+mkRuleFrac :: Rational -> Q [Dec]
+mkRuleFrac r = do
+    let n=numerator r
+        d=denominator r
+    return $
+        [ PragmaD $ RuleP
+            ( "floatparam "++show r )
+            [ ]
+            ( AppE
+                ( VarE $ mkName "floatparam" )
+                ( SigE
+                    ( ConE $ mkName "Proxy" )
+                    ( AppT 
+                        ( ConT $ mkName "Proxy" )
+                        ( AppT 
+                            ( AppT 
+                                ( ConT $ mkName "/" ) 
+                                ( LitT $ NumTyLit n ) 
+                            )
+                            ( LitT $ NumTyLit d)
+                        )
+                    )
+                )
+            ) 
+            ( AppE
+                ( ConE $ mkName "F#" )
+                ( LitE $ FloatPrimL r )
+            )
+            AllPhases
+        ]
+
+-- "floatparam 1"      floatparam (Proxy::Proxy (1/1)) = 1 :: Float
 
 -------------------------------------------------------------------------------
 -- types
@@ -506,7 +548,8 @@ kind2type (AppT (ConT c) t) = if nameBase c=="Config"
     else error "kind2type nameBase c"
 kind2type (ConT n) = ConT $ mkName $ case nameBase n of
     "Nat" -> "Int"
-    "Frac" -> "Rational"
+    "Frac" -> "Float"
+--     "Frac" -> "Rational"
     "Symbol" -> "String"
     str -> error $ "mkParams does not currently support custom type "++str
 kind2type x = error $ "kind2type on x="++show x
@@ -523,14 +566,16 @@ kind2val :: Type -> Name
 kind2val (AppT _ t) = kind2val t
 kind2val (ConT n) = mkName $ case nameBase n of
     "Nat" -> "intparam"
-    "Frac" -> "fracVal"
+    "Frac" -> "floatparam"
+--     "Frac" -> "fracVal"
     "Symbol" -> "symbolVal"
 
 kind2convert :: Type -> Name
 kind2convert (AppT _ t) = kind2convert t
 kind2convert (ConT n) = mkName $ case nameBase n of
     "Nat" -> "id"
-    "Frac" -> "fromRational"
+    "Frac" -> "id"
+--     "Frac" -> "fromRational"
     "Symbol" -> "id"
     _ -> "id"
 

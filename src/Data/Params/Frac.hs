@@ -20,11 +20,17 @@ class KnownFrac (n :: Frac) where
     fracSing :: SFrac n 
 
 instance (KnownNat a, KnownNat b) => KnownFrac (a/b) where
-    fracSing = SFrac (natVal (Proxy::Proxy a)) (natVal (Proxy::Proxy b))
+    fracSing = SFrac 
+        (fromIntegral $ natVal (Proxy::Proxy a)) 
+        (fromIntegral $ natVal (Proxy::Proxy b))
 
 -- | get the value from a type frac
-fracVal :: forall n proxy. (KnownFrac n) => proxy n -> Rational
+-- fracVal :: forall n proxy. (KnownFrac n) => proxy n -> Rational
+fracVal :: forall f n proxy. (KnownFrac n, Fractional f) => proxy n -> f 
 fracVal _ = case fracSing :: SFrac n of
-    SFrac a b -> fromInteger a / fromInteger b 
+    SFrac a b -> fromIntegral a / fromIntegral b 
 
-data SFrac (n :: Frac) = SFrac Integer Integer 
+data SFrac (n :: Frac) = SFrac 
+    {-#UNPACK#-}!Int
+    {-#UNPACK#-}!Int
+-- data SFrac (n :: Frac) = SFrac Integer Integer 

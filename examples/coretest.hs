@@ -20,9 +20,12 @@
 module Main
     where
 
+import GHC.Float
+import GHC.Prim
+
 import Data.Params
 
-data Test (p::Param Nat) = Test Int
+data Test (p::Config Nat) = Test Int
 mkParams ''Test
 
 {-# INLINE doSomething #-}
@@ -58,7 +61,20 @@ doRuntime i = mkApWith1Param
 --           :: (Int -> Any) ~# (Int -> Int))
 -- 
 
+
 main = do
     print $ doStatic 1234
     print $ doRuntime 1233
-    print $ _intparam (Proxy::Proxy 111)
+
+    print (rationalToFloat 2 1)
+
+
+{-# RULES 
+ 
+"rationalToFloat 2 1"  rationalToFloat 2 1 = 2 :: Float
+
+  #-}
+
+{-# NOINLINE x #-}
+x=2::Rational
+

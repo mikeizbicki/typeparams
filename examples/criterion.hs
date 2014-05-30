@@ -35,12 +35,12 @@ import Data.Params.Vector
 -- criterion tests
 
 -- | size of each vector to test; must be divisible by 4
-type Veclen = 416
+type Veclen = 16
 veclen = intparam (Proxy::Proxy Veclen)
 -- veclen = fromIntegral $ natVal (Proxy::Proxy Veclen)
 
 -- | number of vectors in 2d tests
-type Numvec = 1601
+type Numvec = 11000
 numvec = intparam (Proxy::Proxy Numvec)
 -- numvec = fromIntegral $ natVal (Proxy::Proxy Numvec)
 
@@ -50,7 +50,7 @@ type NumType = Float
 -- | criterion configuration parameters
 critConfig = defaultConfig 
     { cfgPerformGC   = ljust True
-    , cfgSamples     = ljust 1000
+    , cfgSamples     = ljust 1
 --     , cfgSummaryFile = ljust $ "results/summary-"++show veclen++"-"++show numvec++".csv"
 --     , cfgReport      = ljust "report.html"
     }
@@ -237,22 +237,20 @@ main = do
             ]
         , bgroup "allToAll"
             [ bgroup "diff4"
-                [ bench "VPU.Vector Automatic (VPU.Vector (Static Veclen))" 
-                    $ nf (distance_allToAll distance_Vector_diff4 vpuavpus1) vpuavpus2
-                , bench "VPU.Vector (Static Numvec) (VPU.Vector (Static Veclen))" 
-                    $ nf (distance_allToAll distance_Vector_diff4 vpusvpus1) vpusvpus2
-                , bench "VPU.Vector (Static Numvec) (VPU.Vector Automatic)" 
-                    $ nf (distance_allToAll distance_Vector_diff4 vpusvpua1) vpusvpua2
-                , bench "VPU.Vector Automatic (VPU.Vector Automatic)" 
+--                 [ bench "VPU.Vector (Static Numvec) (VPU.Vector (Static Veclen))" 
+--                     $ nf (distance_allToAll distance_Vector_diff4 vpusvpus1) vpusvpus2
+--                 , bench "VPU.Vector Automatic (VPU.Vector (Static Veclen))" 
+--                     $ nf (distance_allToAll distance_Vector_diff4 vpuavpus1) vpuavpus2
+--                 , bench "VPU.Vector (Static Numvec) (VPU.Vector Automatic)" 
+--                     $ nf (distance_allToAll distance_Vector_diff4 vpusvpua1) vpusvpua2
+--                 , bench "VPS.Vector (Static Numvec) (VPS.Vector (Static Veclen))" 
+--                     $ nf (distance_allToAll distance_Vector_diff4 vpssvpss1) vpssvpss2
+--                 , bench "VPSR.Vector (Static Numvec) (VPSR.Vector (Static Veclen))" 
+--                     $ nf (distance_allToAll distance_Vector_diff4 vpsrvpsr1) vpsrvpsr2
+--                 , bench "V.Vector (VPU.Vector (Static Veclen))" 
+--                     $ nf (distance_allToAll distance_Vector_diff4 vvpus1) vvpus2
+                [ bench "VPU.Vector Automatic (VPU.Vector Automatic)" 
                     $ nf (distance_allToAll distance_Vector_diff4 vpuavpua1) vpuavpua2
---                 , bench "VPUR.Vector (Static Numvec) (VPU.Vector (Static Veclen))" 
---                     $ nf (distance_allToAll distance_Vector_diff4 vprsvpus1) vprsvpus2
-                , bench "VPS.Vector (Static Numvec) (VPS.Vector (Static Veclen))" 
-                    $ nf (distance_allToAll distance_Vector_diff4 vpssvpss1) vpssvpss2
-                , bench "VPSR.Vector (Static Numvec) (VPSR.Vector (Static Veclen))" 
-                    $ nf (distance_allToAll distance_Vector_diff4 vpsrvpsr1) vpsrvpsr2
-                , bench "V.Vector (VPU.Vector (Static Veclen))" 
-                    $ nf (distance_allToAll distance_Vector_diff4 vvpus1) vvpus2
                 , bench "V.Vector VU.Vector" 
                     $ nf (distance_allToAll distance_Vector_diff4 vvu1) vvu2
                 ]

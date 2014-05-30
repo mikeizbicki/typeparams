@@ -117,7 +117,7 @@ instance
 -- | criterion configuration parameters
 critConfig = defaultConfig 
     { cfgPerformGC   = ljust True
-    , cfgSamples     = ljust 10
+    , cfgSamples     = ljust 1000
 --     , cfgSummaryFile = ljust $ "results/summary-"++show veclen++"-"++show numvec++".csv"
 --     , cfgReport      = ljust "report.html"
     }
@@ -154,28 +154,6 @@ nfWith2Constraint = nf
 
 nfWith3Constraint :: NFData b => (((p1,p2,p3) => a) -> b) -> ((p1,p2,p3) => a) -> Pure
 nfWith3Constraint = nf
-
--- {-# RULES "intparam111" intparam (Proxy::Proxy 111) = (111::Int) #-}
--- {-# RULES "intparam222" intparam (Proxy::Proxy 222) = (222::Int) #-}
-
--- return $ 
---     [ PragmaD $ RuleP 
---         ("intparam "++show i)
---         [ ]
---         ( AppE 
---             ( VarE $ mkName "intparam" )
---             ( SigE
---                 ( ConE $ mkName "Proxy" )
---                 ( AppT
---                     ( ConT $ mkName "Proxy" )
---                     ( LitT ( NumTyLit i ) )
---                 )
---             )
---         )
---         ( AppE ( ConE $ mkName "I#" ) (LitE $ IntPrimL i ) )
---         AllPhases
---     | i <- [0..10000]
---     ]
 
 main = do
     
