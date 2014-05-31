@@ -1,5 +1,4 @@
-Overview of typeparams
--------------------------------------------------------------------------------
+# The typeparams library
 
 This library provides a lens-like interface for working with type parameters.  In the code:
 
@@ -20,20 +19,17 @@ cabal update
 cabal install typeparams
 ```
 
-Tutorial: Unboxing your unboxed vectors
--------------------------------------------------------------------------------
+## Tutorial: unnbox your unboxed vectors!
 
 The remainder of this README is a literate haskell file.  Please follow along yourself!
 
 ```
-
 > import Control.Category
 > import Data.Params
 > import Data.Params.Vector.Unboxed 
 > import Data.Params.Vector
 > import qualified Data.Vector.Generic as VG
 > import Prelude hiding ((.),id)
-
 ```
 
 The `Data.Params.Vector.Unboxed` module contains the following definition for our vectors:
@@ -46,25 +42,21 @@ mkParams ''Vector
 `mkParams` is a template haskell function that generates a number of useful functions and classes that will be described below.  The `len` type param lets us statically enforce the size of a vector as follows:
 
 ```
-
 > v1 = VG.fromList [1..10] :: Vector (Static 10) Float
-
 ```
 
 Here, `Static` means that the parameter is known statically at compile time.  If we don't know in advance the size of our vectors, however, we can set `len` to `Automatic`:
 
 ```
-
 > v2 = VG.fromList [1..10] :: Vector Automatic Float
-
 ```
 
 `v2` will behave exactly like the unboxed vectors in the `vector` package. 
 
 The `Config` param generalizes the concept of implicit configurations introduced by [this functional pearl](http://www.cs.rutgers.edu/~ccshan/prepose/prepose.pdf) by Oleg Kiselyov and Chung-chieh Shan.  It can take on types of `Static x`, `Automatic`, or `RunTime`.  We begin by working through the capabilities of the `Static` configurations.
 
-From type params to values
-==========================
+### From type params to values
+
 
 We can get access to the value of the `len` parameter using the function:
 
@@ -90,31 +82,25 @@ ghci> viewParam _len (undefined::Vector (Static 10) Float)
 
 We cannot use `ViewParam` if the length is being managed automatically.  `Vector Automatic Float` is not an instance of the `ViewParam` type class, so the type checker enforces this restriction automatically.
 
-Unboxing the vector 
-===================
+### Unboxing the vector 
 
 If we know a vector's size at compile time, then the compiler has all the information it needs to unbox the vector.  Therefore, we can construct a 2d unboxed vector by:
 
 ```
-
 > vv1 :: Vector (Static 2) (Vector (Static 10) Float)
 > vv1 = VG.fromList [VG.fromList [1..10], VG.fromList [1..10]] 
-
 ```
 
 or even a 3d vector by:
 
 ```
-
 > vvv1 :: Vector (Static 20) (Vector (Static 2) (Vector (Static 10) Float))
 > vvv1 = VG.replicate 20 vv1
-
 ```
 
 In general, there are no limits to the depth the vectors can be nested.
 
-Viewing nested parameters
-=========================
+###Viewing nested parameters
 
 What if I want to view the length of a nested inner vector?  The value `_elem :: TypeLens p (Param_elem p)` gives us this capability.  It composes with `_len` to give the type:
 
@@ -146,7 +132,6 @@ ghci> viewParam (_elem._elem._len) vvv1
 We can use type lenses in this fashion to extract parameters from truly monstrous types.  For example, given the type:
 
 ```
-
 > type Monster a = Either
 >   (Maybe (Vector (Static 34) Float))
 >   (Either 
@@ -156,7 +141,6 @@ We can use type lenses in this fashion to extract parameters from truly monstrou
 >           (Vector (Static 1) Int)
 >       )
 >   )
-
 ```
 
 We can do
@@ -173,8 +157,7 @@ No matter how large the type is, we can compose `TypeLens`es to access any param
 
 The `_left`, `_right`, and `_just` identifiers are defined in `Data.Params.Instances`.  This file contains identifiers for all the types in base.  If you want to use the library on a type not in base, all you have to do is call `mkParams` on the type constructor.
 
-From values back to type params
-===============================
+###From values back to type params
 
 That's cool, but it's not super useful if we have to know the values of all our types at compile time.  We can use the magic of the `reflection` package to get around this.   `reflection` is awkward to use directly, so `typeparams` wraps the magic into the `RunTime` `Config` type.  (This code is based off of Austin Seipp's excellent [reflection tutorial](https://www.fpcomplete.com/user/thoughtpolice/using-reflection).)
 
@@ -189,22 +172,18 @@ with1Param ::
 For example, we can specify the length of the innermost vector as follows:
 
 ```
-
 > vvv2 :: Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))
 > vvv2 = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
-
 ```
 
 Or we can specify the length of all vectors:
 
 ```
-
 > vvv3 :: Vector RunTime (Vector RunTime (Vector RunTime Float))
 > vvv3 = with1Param (_elem._elem._len) 10 
 >      $ with1Param (_elem._len) 1 
 >      $ with1Param _len 1 
 >      $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
-
 ```
 
 But wait!  If we try to `show` either of these variables, we get an error message:
@@ -241,8 +220,7 @@ ghci> apWith3Param (_elem._elem._len) 10 (_elem._len) 1 _len 1 show vvv3
 "fromList [fromList [fromList [1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0]]]"
 ```
 
-Lying to the RunTime 
-====================
+### Lying to the RunTime 
 
 We can specify any number we want to a `RunTime` configuration, and can change the value throughout the course of the program.  For our `Vector` type, this will change the shape with no runtime overhead.  For example:
 
@@ -276,18 +254,15 @@ fromList [fromList [fromList [1.0,2.0]
 
 (I've manually reformatted the output of show to make it easier to read.)
 
-Making it Automatic 
-===================
+### Making it Automatic
 
 Let's recap... `Static` configurations are easy to work with but less flexible, whereas `RunTime` configurations are a flexible pain in the butt.  We get the best of both worlds with `Automatic` configurations.
 
 With one dimensional vectors, making the length automatic is as easy as specifying the type signature:
 
 ```
-
 > v3 :: Vector Automatic Float
 > v3 = VG.fromList [1..5]
-
 ```
 
 Now, we can use `v3` just like we would use any vector from the `vector` package.
@@ -295,23 +270,19 @@ Now, we can use `v3` just like we would use any vector from the `vector` package
 With multiple dimensions, we must explicitly specify the inner dimensions like so:
 
 ```
-
 > vvv4 :: Vector Automatic (Vector Automatic (Vector Automatic Float))
 > vvv4 = with1ParamAutomatic (_elem._elem._len) 5
 >      $ with1ParamAutomatic (_elem._len) 2
 >      $ VG.singleton $ VG.replicate 2 $ VG.fromList [1..5]
-
 ```
 
 This is required so that the vectors can enforce that every inner vector at the same level has the correct size.  For example, the following code will give a run time error:
 
 ```
-
 > vvv5 :: Vector Automatic (Vector Automatic (Vector Automatic Float))
 > vvv5 = with1ParamAutomatic (_elem._elem._len) 5
 >      $ with1ParamAutomatic (_elem._len) 2
 >      $ VG.singleton $ VG.fromList [VG.fromList [1..5], VG.fromList [1..4]]
-
 ```
 
 Using `vvv4` is as convenient as using any vectors from the `vector` package that can be nested.  For example:
@@ -327,25 +298,28 @@ ghci> VG.foldl1' (VG.zipWith (+)) $ vvv4 VG.! 0
 fromList [2.0,4.0,6.0,8.0,10.0]
 ```
 
-So how much faster?! 
-===================
-
 Whew!  That's a lot to take in!  
+
+### So how much faster?! 
 
 The file [examples/criterion.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/criterion.hs) contains some run time experiments that show just how fast the unboxed unboxed vectors are.  In one test, it uses the naive O(n^2) algorithm to perform nearest neighbor searches.  The results are shown below:
 
-<center><img src="http://izbicki.me/public/cs/github/unboxed-vs-boxed.png"/></center>
+<p align="center">
+<img src="http://izbicki.me/public/cs/github/unboxed-vs-boxed.png"/>
+</p>
 
 The green line uses vectors provided in the `Data.Params.Vector.Unboxed` module of type `Vector Automatic (Vector Automatic Float)`; and the red line uses standard vectors from the `vector` package of type `Data.Vector.Vector (Data.Vector.Unboxed.Vector Float)`.  In both cases, the number of dimensions of the data points was 400.
 
 Switching to unboxed unboxed vectors yields a nice performance boost with almost no conceptual cost to the programmer!
 
-Lebesgue or not to beg, that is the question 
-============================================
+###Lebesgue or not to beg, that is the supercompilation 
 
 There is a family of normed vector spaces called [Lebesgue (or Lp) spaces](https://en.wikipedia.org/wiki/Lp_space).  For a given value `p`, the Lp norm is defined as:
 
-<center><img src="https://upload.wikimedia.org/math/b/7/0/b7022490915ed7618b8265e45cea1df1.png"/></center>
+
+<p align="center">
+<img src="https://upload.wikimedia.org/math/b/7/0/b7022490915ed7618b8265e45cea1df1.png"/>
+</p>
 
 In haskell code we can create a newtype that will encode the value of `p` by:
 
@@ -362,7 +336,6 @@ instance VG.Vector vec elem => VG.Vector (Lebesgue p vec) elem where
 We can then define a generic distance function over _any_ Lp space as:
 
 ```
-
 lp_distance :: 
     ( VG.Vector vec elem
     , Floating elem
@@ -386,14 +359,15 @@ The value of `p` can now be set at compile time or at run time using the `typepa
 
 The plot below shows the resulting run times.  The green values are the run times of the `lp_distance` function where `p` is specified using `Static`; the red for when `p` is specified using `RunTime`; and the blue for hand-optimized routines.
 
-<center><img src="http://izbicki.me/public/cs/github/supercomp-lebesgue.png"/></center>
+<p align="center">
+<img src="http://izbicki.me/public/cs/github/supercomp-lebesgue.png"/>
+</p>
 
 Notice that for the L2 distnce, the compiler gives us a 40x speed boost when we switch from `RunTime` to `Static` configurations.  
 
 By using the generic `lp_distance` function, we get all the speed advantages of hand-optimized code, but we still have the flexibility of having users enter whatever `p` value they want to compute.  We also avoid the need to manually write many hand-tuned distance functions.
 
-Conclusion 
-----------
+##Conclusion 
 
 The tradition use for dependent types is to make programs safer... but maybe they can make our programs faster too.  The goal of `typeparams` is to do both.  
 
