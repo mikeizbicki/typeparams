@@ -87,6 +87,28 @@ v = VG.singleton $ VG.singleton $ VG.fromList [1..10]
 v' :: Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))
 v' = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
 
+va :: Vector (Static 1) (Vector (Static 1) (Vector Automatic Float))
+va = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
+
+vvv' :: Vector RunTime (Vector RunTime (Vector RunTime Float))
+vvv' = with1Param (_elem._elem._len) 10 
+     $ with1Param (_elem._len) 1 
+     $ with1Param _len 1 
+     $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
+
+vvv'' :: Vector Automatic (Vector Automatic (Vector Automatic Float))
+vvv'' = with1ParamAutomatic (_elem._elem._len) 10 
+--       $ with1ParamAutomatic (_elem._len) 1 
+--       $ with1ParamAutomatic _len 1 
+      $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
+
+vvv2 :: Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))
+vvv2 = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10]
+
+w :: Vector Automatic (Vector Automatic Float)
+w = with1ParamAutomatic (_elem._len) 1
+  $ VG.singleton $ VG.singleton 1
+
 v'' :: Vector (Static 1) (Vector (Static 1) (Vector Automatic Float))
 v'' = runTimeToAutomatic (_elem._elem._len) 10 v'
 
@@ -138,10 +160,6 @@ show_u'' = mkApWith1Param
 
 -------------------
 
-class StaticToAutomatic p ts ta | p ts -> ta where
-    staticToAutomatic :: TypeLens Base p -> ts -> ta
-    mkPseudoPrimInfoFromStatic :: TypeLens Base p -> PseudoPrimInfo ts -> PseudoPrimInfo ta
-
 instance
     ( KnownNat len
     , PseudoPrim elem
@@ -176,10 +194,6 @@ instance
 
     mkPseudoPrimInfoFromStatic _ (PseudoPrimInfo_VectorStatic ppi)
         = PseudoPrimInfo_VectorStatic $ mkPseudoPrimInfoFromStatic (TypeLens :: TypeLens Base p) ppi 
-
-class RunTimeToAutomatic p tr ta | p tr -> ta, p ta -> tr where
-    runTimeToAutomatic :: TypeLens Base p -> ParamType p -> (ApplyConstraint p tr => tr) -> ta
-    mkPseudoPrimInfoFromRuntime :: TypeLens Base p -> ParamType p -> PseudoPrimInfo tr -> PseudoPrimInfo ta
 
 instance
     ( PseudoPrim elem
@@ -230,6 +244,63 @@ instance
 
     mkPseudoPrimInfoFromRuntime _ p (PseudoPrimInfo_VectorStatic ppi)
         = PseudoPrimInfo_VectorStatic $ mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi
+
+instance
+    ( RunTimeToAutomatic p elem elem'
+    , HasDictionary p
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p)
+    ) => RunTimeToAutomatic
+        (Param_elem p)
+        (Vector RunTime elem)
+        (Vector RunTime elem')
+        where
+
+    runTimeToAutomatic lens p v = mkApWith1Param
+        (Proxy::Proxy (Vector RunTime elem))
+        (Proxy::Proxy (Vector RunTime elem'))
+        lens
+        p
+        go
+        v
+        where
+            go :: Vector RunTime elem -> Vector RunTime elem'
+            go (Vector_RunTime off ppi arr) = Vector_RunTime off ppi' arr
+                where
+                    ppi' = mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi
+                        :: PseudoPrimInfo elem'
+
+    mkPseudoPrimInfoFromRuntime _ p (PseudoPrimInfo_VectorRunTime ppi)
+        = PseudoPrimInfo_VectorRunTime $ mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi
+
+instance
+    ( RunTimeToAutomatic p elem elem'
+    , HasDictionary p
+    , ReifiableConstraint (ApplyConstraint_GetConstraint p)
+    ) => RunTimeToAutomatic
+        (Param_elem p)
+        (Vector Automatic elem)
+        (Vector Automatic elem')
+        where
+
+    runTimeToAutomatic lens p v = mkApWith1Param
+        (Proxy::Proxy (Vector Automatic elem))
+        (Proxy::Proxy (Vector Automatic elem'))
+        lens
+        p
+        go
+        v
+        where
+            go :: Vector Automatic elem -> Vector Automatic elem'
+            go (Vector_Automatic len off ppi arr) = Vector_Automatic len off ppi' arr
+                where
+                    ppi' = mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi
+                        :: PseudoPrimInfo elem'
+
+    mkPseudoPrimInfoFromRuntime _ p (PseudoPrimInfo_VectorAutomatic len size ppi)
+        = PseudoPrimInfo_VectorAutomatic 
+            len
+            size
+            (mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi)
 
 -------------------
 

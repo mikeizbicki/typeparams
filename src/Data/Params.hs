@@ -11,7 +11,12 @@ module Data.Params
     , mkParams
 
     , with1Param
+    , with1ParamAutomatic
     , apWith1Param
+
+    , apWith1Param'
+    , apWith2Param'
+    , apWith3Param'
 
     , mkWith1Param
     , mkApWith1Param
@@ -25,6 +30,9 @@ module Data.Params
     , HasDictionary (..)
     , ViewParam (..)
     , ParamDict (..)
+    , ParamIndex
+    , RunTimeToAutomatic (..)
+    , StaticToAutomatic (..)
 
     , ApplyConstraint
     , coerceParamDict
@@ -104,6 +112,7 @@ import qualified Language.Haskell.TH as TH
 import GHC.Float
 import GHC.TypeLits
 import Data.Params.Frac
+import Data.Params.PseudoPrim
 
 import Data.Constraint
 import Data.Constraint.Unsafe
@@ -361,11 +370,25 @@ type family ApplyConstraint_GetType (p::k) t :: *
 type family GetParam (p::k1) (t::k2) :: k3
 type family SetParam (p::k1) (a::k2) (t::k3) :: k3
 
+type ParamIndex p = 
+    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
+    , HasDictionary p
+    )
+
+class StaticToAutomatic p ts ta | p ts -> ta where
+    staticToAutomatic :: TypeLens Base p -> ts -> ta
+    mkPseudoPrimInfoFromStatic :: TypeLens Base p -> PseudoPrimInfo ts -> PseudoPrimInfo ta
+
+class RunTimeToAutomatic p tr ta | p tr -> ta, p ta -> tr where
+    runTimeToAutomatic :: TypeLens Base p -> ParamType p -> (ApplyConstraint p tr => tr) -> ta
+    mkPseudoPrimInfoFromRuntime :: TypeLens Base p -> ParamType p -> PseudoPrimInfo tr -> PseudoPrimInfo ta
+
+---------
+
 newtype DummyNewtype a = DummyNewtype a
 
 mkWith1Param :: proxy m -> (
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
-    , HasDictionary p
+    ( ParamIndex p
     ) => TypeLens Base p
       -> ParamType p
       -> (ApplyConstraint p m => m)
@@ -374,19 +397,30 @@ mkWith1Param :: proxy m -> (
 mkWith1Param _ = with1Param
 
 with1Param :: forall p m.
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
-    , HasDictionary p
+    ( ParamIndex p
     ) => TypeLens Base p
       -> ParamType p
       -> (ApplyConstraint p m => m) 
       -> m
-with1Param lens v = using' (unsafeCoerce DummyNewtype (\x -> p) :: Def (ApplyConstraint_GetConstraint p) (ApplyConstraint_GetType p m)) 
+with1Param lens v = using' (unsafeCoerce DummyNewtype (\x -> p) :: 
+    Def 
+        (ApplyConstraint_GetConstraint p) 
+        (ApplyConstraint_GetType p m)
+    ) 
     where
         p = typeLens2dictConstructor lens v :: ParamDict p 
 
+with1ParamAutomatic :: forall p tr ta.
+    ( ParamIndex p
+    , RunTimeToAutomatic p tr ta
+    ) => TypeLens Base p
+      -> ParamType p
+      -> (ApplyConstraint p tr => tr) 
+      -> ta
+with1ParamAutomatic lens v tr = runTimeToAutomatic lens v tr 
+
 mkApWith1Param :: proxy m -> proxy n -> (
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
-    , HasDictionary p
+    ( ParamIndex p
     )  => TypeLens Base p
        -> ParamType p
        -> (ApplyConstraint p m => m -> n)
@@ -395,9 +429,18 @@ mkApWith1Param :: proxy m -> proxy n -> (
        )
 mkApWith1Param _ _ = apWith1Param
 
+apWith1Param' :: m -> (
+    ( ParamIndex p
+    )  => TypeLens Base p
+       -> ParamType p
+       -> (ApplyConstraint p m => m -> n)
+       -> (ApplyConstraint p m => m)
+       -> n
+       )
+apWith1Param' _ = apWith1Param
+
 apWith1Param :: forall p m n.
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
-    , HasDictionary p
+    ( ParamIndex p
     ) => TypeLens Base p
       -> ParamType p
       -> (ApplyConstraint p m => m -> n) 
@@ -409,10 +452,8 @@ apWith1Param lens v = flip $ apUsing'
         p = typeLens2dictConstructor lens v :: ParamDict p 
 
 mkApWith2Param :: proxy m -> proxy n -> (
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
-    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
-    , HasDictionary p1
-    , HasDictionary p2
+    ( ParamIndex p1
+    , ParamIndex p2
     ) => TypeLens Base p1
       -> ParamType p1
       -> TypeLens Base p2
@@ -423,11 +464,22 @@ mkApWith2Param :: proxy m -> proxy n -> (
       )
 mkApWith2Param _ _ = apWith2Param
 
+apWith2Param' :: m -> (
+    ( ParamIndex p1
+    , ParamIndex p2
+    ) => TypeLens Base p1
+      -> ParamType p1
+      -> TypeLens Base p2
+      -> ParamType p2
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m) => m -> n)
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m) => m)
+      -> n
+      )
+apWith2Param' _ = apWith2Param
+
 apWith2Param :: forall p1 p2 m n.
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
-    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
-    , HasDictionary p1
-    , HasDictionary p2
+    ( ParamIndex p1
+    , ParamIndex p2
     ) => TypeLens Base p1
       -> ParamType p1
       -> TypeLens Base p2
@@ -443,12 +495,9 @@ apWith2Param lens1 v1 lens2 v2 = flip $ apUsing2
         p2 = typeLens2dictConstructor lens2 v2 :: ParamDict p2
 
 mkApWith3Param :: proxy m -> proxy n -> (
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
-    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
-    , ReifiableConstraint (ApplyConstraint_GetConstraint p3)
-    , HasDictionary p1
-    , HasDictionary p2
-    , HasDictionary p3
+    ( ParamIndex p1
+    , ParamIndex p2
+    , ParamIndex p3
     ) => TypeLens Base p1
       -> ParamType p1
       -> TypeLens Base p2
@@ -461,13 +510,26 @@ mkApWith3Param :: proxy m -> proxy n -> (
       )
 mkApWith3Param _ _ = apWith3Param
 
+apWith3Param' :: m -> (
+    ( ParamIndex p1
+    , ParamIndex p2
+    , ParamIndex p3
+    ) => TypeLens Base p1
+      -> ParamType p1
+      -> TypeLens Base p2
+      -> ParamType p2
+      -> TypeLens Base p3
+      -> ParamType p3
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m, ApplyConstraint p3 m) => m -> n)
+      -> ((ApplyConstraint p1 m, ApplyConstraint p2 m, ApplyConstraint p3 m) => m)
+      -> n
+      )
+apWith3Param' _ = apWith3Param
+
 apWith3Param :: forall p1 p2 p3 m n.
-    ( ReifiableConstraint (ApplyConstraint_GetConstraint p1)
-    , ReifiableConstraint (ApplyConstraint_GetConstraint p2)
-    , ReifiableConstraint (ApplyConstraint_GetConstraint p3)
-    , HasDictionary p1
-    , HasDictionary p2
-    , HasDictionary p3
+    ( ParamIndex p1
+    , ParamIndex p2
+    , ParamIndex p3
     ) => TypeLens Base p1
       -> ParamType p1
       -> TypeLens Base p2
@@ -709,7 +771,7 @@ mkParamClass_Star paramname = do
             [ ClassD
                 [ ]
                 ( mkName $ "Param_"++paramname )
-                [ KindedTV (mkName "p") (AppT (AppT ArrowT StarT) ConstraintT)
+                [ KindedTV (mkName "_p") (AppT (AppT ArrowT StarT) ConstraintT)
                 , KindedTV (mkName "t") StarT
                 ] 
                 [ ]
@@ -738,16 +800,16 @@ mkTypeLens_Star paramname = do
                 ( SigP
                     ( VarP $ mkName $ "_"++paramname )
                     ( ForallT 
-                        [ PlainTV $ mkName "p" ]
+                        [ PlainTV $ mkName "_p" ]
                         [ ]
                         ( AppT 
                             ( AppT 
                                 ( ConT $ mkName "TypeLens" ) 
-                                ( VarT $ mkName "p" )
+                                ( VarT $ mkName "_p" )
                             )
                             ( AppT
                                 ( ConT $ mkName $ "Param_" ++ paramname )
-                                ( VarT $ mkName "p" )
+                                ( VarT $ mkName "_p" )
                             )
                         )
                     )
@@ -821,26 +883,26 @@ mkHasDictionary_Star paramstr = do
     return $ if alreadyInstance
         then [ ]
         else [ InstanceD
-            [ ClassP (mkName "HasDictionary") [VarT $ mkName "p"] ]
+            [ ClassP (mkName "HasDictionary") [VarT $ mkName "_p"] ]
             ( AppT 
                 ( ConT $ mkName "HasDictionary" )
-                ( AppT (ConT paramname) (VarT $ mkName "p") )
+                ( AppT (ConT paramname) (VarT $ mkName "_p") )
             )
             [ TySynInstD
                 ( mkName "ParamType" )
                 ( TySynEqn
-                    [ AppT (ConT paramname) (VarT $ mkName "p") ]
-                    ( AppT (ConT $ mkName "ParamType") (VarT $ mkName "p") )
+                    [ AppT (ConT paramname) (VarT $ mkName "_p") ]
+                    ( AppT (ConT $ mkName "ParamType") (VarT $ mkName "_p") )
                 )
             , NewtypeInstD
                 [ ]
                 ( mkName "ParamDict" )
-                [ AppT (ConT paramname) (VarT $ mkName "p") ]
+                [ AppT (ConT paramname) (VarT $ mkName "_p") ]
                 ( RecC
                     ( mkName $ "ParamDict_"++nameBase paramname )
                     [ ( mkName ("unParamDict_"++nameBase paramname)
                       , NotStrict
-                      , AppT (ConT $ mkName "ParamType") (VarT $ mkName "p")
+                      , AppT (ConT $ mkName "ParamType") (VarT $ mkName "_p")
                       ) 
                     ]
                 )
@@ -860,7 +922,7 @@ mkHasDictionary_Star paramstr = do
                                         ( ConT $ mkName "TypeLens" )
                                         ( ConT $ mkName "Base" )
                                     )
-                                    ( VarT $ mkName "p" )
+                                    ( VarT $ mkName "_p" )
                                 )
                             )
                         )
@@ -960,19 +1022,19 @@ mkApplyConstraint_Star paramstr dataname = do
         [ TySynInstD
             ( mkName "ApplyConstraint_GetConstraint" )
             ( TySynEqn
-                [ (AppT (ConT paramname) (VarT $ mkName "p")) ]
-                ( AppT (ConT $ mkName "ApplyConstraint_GetConstraint" ) (VarT $ mkName "p") )
+                [ (AppT (ConT paramname) (VarT $ mkName "_p")) ]
+                ( AppT (ConT $ mkName "ApplyConstraint_GetConstraint" ) (VarT $ mkName "_p") )
             )
         , TySynInstD
             ( mkName "ApplyConstraint_GetType" )
             ( TySynEqn
-                [ (AppT (ConT paramname) (VarT $ mkName "p"))
+                [ (AppT (ConT paramname) (VarT $ mkName "_p"))
                 , applyTyVarBndrL dataname tyVarBndrL
                 ]
                 ( AppT
                     ( AppT
                         ( ConT $ mkName "ApplyConstraint_GetType" )
-                        ( VarT $ mkName "p" )
+                        ( VarT $ mkName "_p" )
                     )
                     ( VarT $ mkName paramstr )
                 )
@@ -1037,14 +1099,14 @@ mkViewParam_Star paramstr dataname = do
         [ InstanceD
             [ ClassP 
                 (mkName "ViewParam") 
-                [ VarT $ mkName "p"
+                [ VarT $ mkName "_p"
                 , VarT $ mkName paramstr
                 ]
             ]
             ( AppT 
                 ( AppT
                     ( ConT $ mkName "ViewParam" )
-                    ( AppT (ConT paramname) (VarT $ mkName "p") )
+                    ( AppT (ConT paramname) (VarT $ mkName "_p") )
                 )
                 ( applyTyVarBndrL dataname tyVarBndrL )
             )
@@ -1062,7 +1124,7 @@ mkViewParam_Star paramstr dataname = do
                                         ( ConT $ mkName "TypeLens" ) 
                                         ( ConT $ mkName "Base") 
                                     ) 
-                                    ( VarT $ mkName "p" )
+                                    ( VarT $ mkName "_p" )
                                 )
                             )
                         )

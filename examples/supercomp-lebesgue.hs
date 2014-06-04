@@ -35,7 +35,6 @@ import qualified Data.Params.Vector.Storable as VPS
 import qualified Data.Params.Vector.Storable as VPSR
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector as V
-import Numeric.FastMath
 import Prelude hiding ((.),id)
 
 import GHC.Prim
@@ -49,19 +48,20 @@ import Data.Params
 import Data.Params.Frac
 import Data.Params.PseudoPrim
 import Data.Params.Vector
+import Numeric.FastMath
 
 -------------------------------------------------------------------------------
 
-newtype Lebesgue (n::Config Frac) (vec :: * -> *) elem = Lebesgue (vec elem)
+newtype Lebesgue (p::Config Frac) (vec :: * -> *) elem = Lebesgue (vec elem)
     deriving (Read,Show,Eq,Ord)
 
-mkParamClass_Config "n" (ConT $ mkName "Float" )
-mkHasDictionary_Config "n" (ConT $ mkName "Float" )
-mkParamInstance "n" (ConT $ mkName "Float" ) ''Lebesgue
-mkReifiableConstraint "n" 
-mkTypeLens_Config "n"
-mkViewParam_Config "n" ''Lebesgue
-mkApplyConstraint_Config "n" ''Lebesgue
+mkParamClass_Config "p" (ConT $ mkName "Float" )
+mkHasDictionary_Config "p" (ConT $ mkName "Float" )
+mkParamInstance "p" (ConT $ mkName "Float" ) ''Lebesgue
+mkReifiableConstraint "p" 
+mkTypeLens_Config "p"
+mkViewParam_Config "p" ''Lebesgue
+mkApplyConstraint_Config "p" ''Lebesgue
 
 mkTypeLens_Star "elem"
 mkViewParam_Star "elem" ''Lebesgue
@@ -74,27 +74,27 @@ mkTypeLens_Star "vec"
 mkHasDictionary_Star "vec"
 
 instance 
-    ( ViewParam p (vec elem) 
-    ) => ViewParam (Param_vec p) (Lebesgue n vec elem)
+    ( ViewParam p1 (vec elem) 
+    ) => ViewParam (Param_vec p1) (Lebesgue p vec elem)
         where
-    viewParam _ _ = viewParam (undefined::TypeLens Base p) (undefined :: vec elem)
+    viewParam _ _ = viewParam (undefined::TypeLens Base p1) (undefined :: vec elem)
 
 type instance ApplyConstraint_GetConstraint (Param_vec p) 
    = ApplyConstraint_GetConstraint p 
 
-type instance ApplyConstraint_GetType (Param_vec p) (Lebesgue n vec elem)
-   = ApplyConstraint_GetType p (Lebesgue n vec elem)
+type instance ApplyConstraint_GetType (Param_vec p1) (Lebesgue p vec elem)
+   = ApplyConstraint_GetType p1 (Lebesgue p vec elem)
 
 v = VG.fromList [1..10] :: Lebesgue (Static (2/1)) (VPU.Vector Automatic) Float
 v' = VG.fromList [1..10] :: Lebesgue (Static (2/1)) (VPU.Vector (Static 10)) Float
 
 -------------------
 
-instance NFData (vec elem) => NFData (Lebesgue n vec elem) where
+instance NFData (vec elem) => NFData (Lebesgue p vec elem) where
     rnf (Lebesgue v) = rnf v
 
-instance PseudoPrim (vec elem) => PseudoPrim (Lebesgue n vec elem) where
-    newtype PseudoPrimInfo (Lebesgue n vec elem)
+instance PseudoPrim (vec elem) => PseudoPrim (Lebesgue p vec elem) where
+    newtype PseudoPrimInfo (Lebesgue p vec elem)
         = PseudoPrimInfo_ManyParams (PseudoPrimInfo (vec elem))
     pp_sizeOf# (PseudoPrimInfo_ManyParams ppi) = pp_sizeOf# ppi
     pp_alignment# (PseudoPrimInfo_ManyParams ppi) = pp_alignment# ppi
@@ -134,9 +134,9 @@ instance VG.Vector vec elem => VG.Vector (Lebesgue p vec) elem where
     basicUnsafeCopy (MLebesgue vm) (Lebesgue v) = VG.basicUnsafeCopy vm v
     elemseq (Lebesgue v) a b = VG.elemseq v a b
 
-newtype MLebesgue (n::Config Frac) v s a = MLebesgue ( v s a )
+newtype MLebesgue (p::Config Frac) v s a = MLebesgue ( v s a )
 
-instance VGM.MVector v a => VGM.MVector (MLebesgue n v) a where
+instance VGM.MVector v a => VGM.MVector (MLebesgue p v) a where
     {-# INLINE basicLength #-}
     {-# INLINE basicUnsafeSlice #-}
     {-# INLINE basicOverlaps #-}
@@ -147,12 +147,12 @@ instance VGM.MVector v a => VGM.MVector (MLebesgue n v) a where
     basicLength (MLebesgue v) = VGM.basicLength v
     basicUnsafeSlice s t (MLebesgue v) = MLebesgue $ VGM.basicUnsafeSlice s t v
     basicOverlaps (MLebesgue v1) (MLebesgue v2) = VGM.basicOverlaps v1 v2
-    basicUnsafeNew n = liftM MLebesgue $ VGM.basicUnsafeNew n
+    basicUnsafeNew p = liftM MLebesgue $ VGM.basicUnsafeNew p
     basicUnsafeReplicate i a = liftM MLebesgue $ VGM.basicUnsafeReplicate i a
     basicUnsafeRead (MLebesgue v) i = VGM.basicUnsafeRead v i
     basicUnsafeWrite (MLebesgue v) i a = VGM.basicUnsafeWrite v i a
 
-type instance VG.Mutable (Lebesgue n v) = MLebesgue n (VG.Mutable v)
+type instance VG.Mutable (Lebesgue p v) = MLebesgue p (VG.Mutable v)
 
 ---------------------------------------
 -- the Lebesgue distance
@@ -161,14 +161,14 @@ lp_distance ::
     ( VG.Vector vec elem
     , Floating elem
     , elem ~ Float
-    , ViewParam Param_n (Lebesgue n vec elem)
-    ) => Lebesgue n vec elem -> Lebesgue n vec elem -> elem
-lp_distance !v1 !v2 = (go 0 (VG.length v1-1))**(1/n)
+    , ViewParam Param_p (Lebesgue p vec elem)
+    ) => Lebesgue p vec elem -> Lebesgue p vec elem -> elem
+lp_distance !v1 !v2 = (go 0 (VG.length v1-1))**(1/p)
     where
-        n = viewParam _n v1
+        p = viewParam _p v1
 
         go tot (-1) = tot
-        go tot i = go (tot+diff1**n) (i-1)
+        go tot i = go (tot+diff1**p) (i-1)
             where 
                 diff1 = abs $ v1 `VG.unsafeIndex` i-v2 `VG.unsafeIndex` i
 
@@ -204,6 +204,13 @@ l3_distance !v1 !v2 = (go 0 (VG.length v1-1))**(1/3)
             where 
                 diff1 = abs $ v1 `VG.unsafeIndex` i-v2 `VG.unsafeIndex` i
 
+l4_distance :: (VG.Vector v f, Floating f) => v f -> v f -> f
+l4_distance !v1 !v2 = sqrt $ sqrt $ go 0 (VG.length v1-1)
+    where
+        go tot (-1) = tot
+        go tot i = go (tot+diff1*diff1*diff1*diff1) (i-1)
+            where 
+                diff1 = abs $ v1 `VG.unsafeIndex` i-v2 `VG.unsafeIndex` i
 l77_distance :: (VG.Vector v f, Floating f) => v f -> v f -> f
 l77_distance !v1 !v2 = (go 0 (VG.length v1-1))**(2/77)
     where
@@ -216,7 +223,7 @@ l79_distance :: (VG.Vector v f, Floating f) => v f -> v f -> f
 l79_distance !v1 !v2 = (go 0 (VG.length v1-1))**(2/79)
     where
         go tot (-1) = tot
-        go tot i = go (tot+diff1**(79/2)) (i-1)
+        go tot i = go (tot+diff1**(1651110466/1024)) (i-1)
             where 
                 diff1 = abs $ v1 `VG.unsafeIndex` i-v2 `VG.unsafeIndex` i
 
@@ -234,7 +241,7 @@ numvec = intparam (Proxy::Proxy Numvec)
 -- | criterion configuration parameters
 critConfig = Criterion.defaultConfig 
     { Criterion.cfgPerformGC   = Criterion.ljust True
-    , Criterion.cfgSamples     = Criterion.ljust 100
+    , Criterion.cfgSamples     = Criterion.ljust 30
 --     , cfgSummaryFile = ljust $ "results/summary-"++show veclen++"-"++show numvec++".csv"
 --     , cfgReport      = ljust "report.html"
     }
@@ -294,9 +301,9 @@ main = do
             :: VPU.Vector (Static Numvec) (Lebesgue (Static (77/2)) (VPU.Vector (Static Veclen)) Float)
 
     let vvl79b = VG.fromList $ map VG.fromList dimLL1 
-            :: VPU.Vector (Static Numvec) (Lebesgue (Static (79/2)) (VPU.Vector (Static Veclen)) Float)
+            :: VPU.Vector (Static Numvec) (Lebesgue (Static (1651110466/1024)) (VPU.Vector (Static Veclen)) Float)
         vvl79a = VG.fromList $ map VG.fromList dimLL2 
-            :: VPU.Vector (Static Numvec) (Lebesgue (Static (79/2)) (VPU.Vector (Static Veclen)) Float)
+            :: VPU.Vector (Static Numvec) (Lebesgue (Static (1651110466/1024)) (VPU.Vector (Static Veclen)) Float)
 
     let vvlna = VG.fromList $ map VG.fromList dimLL1 
             :: VPU.Vector (Static Numvec) (Lebesgue RunTime (VPU.Vector (Static Veclen)) Float)
@@ -321,7 +328,7 @@ main = do
                 (Static Numvec) 
                 (Lebesgue RunTime (VPU.Vector (Static Veclen)) Float)))
             (Proxy::Proxy Float)
-            (_elem._n)
+            (_elem._p)
             i
             (distance_allToAll lp_distance vvlna)
 
@@ -332,24 +339,24 @@ main = do
             , bench "(3/1)" $ nf (distance_allToAll lp_distance vvl3a) vvl3b
             , bench "(4/1)" $ nf (distance_allToAll lp_distance vvl4a) vvl4b
             , bench "(77/2)" $ nf (distance_allToAll lp_distance vvl77a) vvl77b
-            , bench "(79/2)" $ nf (distance_allToAll lp_distance vvl79a) vvl79b
+            , bench "(1651110466/1024)" $ nf (distance_allToAll lp_distance vvl79a) vvl79b
             ]
-        , bgroup "Runtime"
+        , bgroup "RunTime"
             [ bench "(1/1)" $ nfWith1Constraint (test 1) vvlnb
             , bench "(2/1)" $ nfWith1Constraint (test 2) vvlnb
             , bench "(3/1)" $ nfWith1Constraint (test 3) vvlnb
             , bench "(4/1)" $ nfWith1Constraint (test 4) vvlnb
             , bench "(77/2)" $ nfWith1Constraint (test $ 77/2) vvlnb
-            , bench "(79/2)" $ nfWith1Constraint (test $ 79/2) vvlnb
+            , bench "(1651110466/1024)" $ nfWith1Constraint (test $ 1651110466/1024) vvlnb
             ]
         , bgroup "HandOpt"
             [ bench "(1/1)" $ nf (distance_allToAll l1_distance vvlna) vvlnb
             , bench "(1/1)'" $ nf (distance_allToAll l1_distance' vvlna) vvlnb
             , bench "(2/1)" $ nf (distance_allToAll l2_distance vvlna) vvlnb
             , bench "(3/1)" $ nf (distance_allToAll l3_distance vvlna) vvlnb
-            , bench "(4/1)" $ nf (distance_allToAll l3_distance vvlna) vvlnb
+            , bench "(4/1)" $ nf (distance_allToAll l4_distance vvlna) vvlnb
             , bench "(77/2)" $ nf (distance_allToAll l77_distance vvlna) vvlnb
-            , bench "(79/2)" $ nf (distance_allToAll l79_distance vvlna) vvlnb
+            , bench "(1651110466/1024)" $ nf (distance_allToAll l79_distance vvlna) vvlnb
             ]
         ]
 
@@ -359,7 +366,7 @@ nfWith1Constraint = nf
 -------------------------------------------------------------------------------
 -- test functions 
 
--- | sums the distance between a point and every point in a vector in time O(n)
+-- | sums the distance between a point and every point in a vector in time O(p)
 distance_oneToAll ::
     ( VG.Vector v1 (v2 f)
     , VG.Vector v2 f
@@ -372,7 +379,7 @@ distance_oneToAll !dist !v !vv =  go 0 (VG.length vv-1)
             where
                 tot' = tot + dist v (vv `VG.unsafeIndex` i)
 
--- | sums the distance between every point in vv1 and every point in vv2 in time O(n^2)
+-- | sums the distance between every point in vv1 and every point in vv2 in time O(p^2)
 distance_allToAll ::
     ( VG.Vector v1 (v2 f)
     , VG.Vector v2 f
