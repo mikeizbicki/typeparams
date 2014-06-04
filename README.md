@@ -113,7 +113,7 @@ The type of `_elem` allows us to combine it with `_len` to view the inner parame
 
 ```
 ghci> viewParam _len vv1
-1
+2
 
 ghci> viewParam (_elem._len) vv1
 10
