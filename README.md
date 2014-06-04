@@ -399,31 +399,31 @@ We can then define a generic distance function over _any_ Lp space as:
 lp_distance :: 
     ( VG.Vector vec elem
     , Floating elem
-    , ViewParam Param_n (Lebesgue n vec elem)
-    ) => Lebesgue n vec elem -> Lebesgue n vec elem -> elem
-lp_distance !v1 !v2 = (go 0 (VG.length v1-1))**(1/n)
+    , ViewParam Param_p (Lebesgue p vec elem)
+    ) => Lebesgue p vec elem -> Lebesgue p vec elem -> elem
+lp_distance !v1 !v2 = (go 0 (VG.length v1-1))**(1/p)
     where
-        n = viewParam _n v1
+        p = viewParam _p v1
 
         go tot (-1) = tot
-        go tot i = go (tot+diff1**n) (i-1)
+        go tot i = go (tot+diff1**p) (i-1)
             where 
                 diff1 = abs $ v1 `VG.unsafeIndex` i-v2 `VG.unsafeIndex` i
 ```
 
-The value of `p` can now be set at compile time or at run time using the `typeparams` machinery.  If we know the value at compile time, however, GHC can perform a number of optimizations:  
+The value of `p` can now be set at compile time or at run time using the typeparams machinery.  If we know the value at compile time, however, GHC can perform a number of optimizations:  
 
 1.  The most important optimization is that the value of `p` never has to be stored in memory or even in a register.  The resulting assembly uses what is called [immediate instructions](http://programmedlessons.org/AssemblyTutorial/Chapter-11/ass11_2.html).  These assembly instructions are very fast in inner loops, and make the code run about 2x faster no matter what the value of `p` is.  (The example [examples/coretest.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/coretest.hs) provides a minimal code sample that facilitates inspecting the effect of different parameters on the core code and resulting assembly.)
 
 2.  For specific values of `p`, we can optimize the formula of the Lp distance considerably.  For example, exponentiation is very slow on x86 CPUs.  Instead of evaluating `x**2`, it is much cheaper to evaluate `x*x`.  Similarly, instead of evaluating `x**(1/2)`, it is cheaper to evaluate `sqrt x`.  These optimizations are not safe for floating point numbers (small amounts of precision can be lost), so GHC doesn't perform them by default.  The [fast-math](https://github.com/liyang/fast-math) library is needed to cause these optimizations. 
 
-The plot below shows the resulting run times.  The green values are the run times of the `lp_distance` function where `p` is specified using `Static`; the red for when `p` is specified using `RunTime`; and the blue for hand-optimized routines.
+The plot below shows the resulting run times:   
 
 <p align="center">
 <img src="http://izbicki.me/public/cs/github/supercomp-lebesgue2.png"/>
 </p>
 
-Notice that for the L2 distnce, the compiler gives us a 40x speed boost when we switch from `RunTime` to `Static` configurations.  
+The green values are the run times of the `lp_distance` function where `p` is specified using `Static`; the red for when `p` is specified using `RunTime`; and the blue for hand-optimized routines.  Hashed columns indicate the test was run with the `Numeric.FastMath` import.  All code was compiled using llvm and the optimization flags: `-optlo -O3 -optlo -enable-unsafe-fp-math`.  Notice that there are some cases where the fast-math library is able to perform optimizations that llvm's unsafe-fp-math flag cannot.
 
 By using the generic `lp_distance` function, we get all the speed advantages of hand-optimized code, but we still have the flexibility of having users enter whatever `p` value they want to compute.  We also avoid the need to manually write many hand-tuned distance functions.
 
