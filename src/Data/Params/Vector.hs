@@ -1,14 +1,18 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- | Provides a generic interface for working with parameterized vectors.
+-- | Provides the infrastructure that is common to all types of parameterized
+-- vectors.
 module Data.Params.Vector
     (
+
+    -- * Type lenses
+    _len
+    , _elem
+
     -- * Classes
-    Param_len (..)
+    , Param_len (..)
     , Param_elem (..)
     , Def (..)
-    , _len
-    , _elem
 
     )
     where

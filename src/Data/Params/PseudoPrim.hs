@@ -2,6 +2,15 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
+-- | This modules extends the 'Prim' from "Data.Primitive" class to cases
+-- where we don't know the primitive information (like the size) at compile
+-- time.  Instead, we must pass in a 'PseudoPrimInfo' object that will get
+-- evaluated on every function call and that contains the needed information.
+--
+-- For 'PseudoPrim' instances that are also 'Prim' instances, this involves 
+-- no run time overhead.  For 'PseudoPrim' instances that cannot be made
+-- 'Prim' instances, this involves a mild memory and speed bookkeeping 
+-- overhead.
 module Data.Params.PseudoPrim
     where
 
@@ -24,7 +33,12 @@ class PseudoPrim a where
     pp_readByteArray#   :: PseudoPrimInfo a -> MutableByteArray# s -> Int# -> State# s -> (# State# s, a #)
     pp_writeByteArray#  :: PseudoPrimInfo a -> MutableByteArray# s -> Int# -> a -> State# s -> State# s
 
+    -- | Do we need to evaluate the info in order to call these functions?
     seqInfo :: a -> Bool
+
+    -- | If 'seqInfo' returns 'True', then this function is undefined.
+    -- Otherwise, it containes an empty 'PseudoPrimInfo' whose type is
+    -- sufficient to determine all the needed information.
     emptyInfo :: PseudoPrimInfo a
 
 #define mkPseudoPrim(t,ppi) \

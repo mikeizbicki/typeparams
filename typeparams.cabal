@@ -1,8 +1,16 @@
 Name:                typeparams
 Version:             0.0.1.0
-Synopsis:            Efficient parameters representation at the type or value level
+Synopsis:            Lens-like interface for type level parameters; allows unboxed unboxed vectors and supercompilation
 Description:         
-Category:            Data Mining, Machine Learning, Algorithms, Data structures
+    This library provides a lens-like interface for working with type parameters. In the code:
+    .
+    > data Example p1 (p2::Config Nat) (p3::Constraint) = Example
+    .
+    @p1@, @p2@, and @p3@ are the type parameters.  
+    .
+    Two example uses of this library are for unboxing unboxed vectors and supercompilation-like optimizations.   Please see the <https://github.com/mikeizbicki/typeparams#the-typeparams-library README file on github> for a detailed description and tutorial.  After reading through that, the haddock documentation will make more sense.
+
+Category:            Configuration, Dependent Types, Data, Optimization
 License:             BSD3
 License-file:        LICENSE
 Author:              Mike izbicki
@@ -43,12 +51,12 @@ Library
         Data.Params
         Data.Params.Frac
         Data.Params.PseudoPrim
-        Data.Params.Instances
+        -- Data.Params.Instances
         Data.Params.Vector
-        Data.Params.Vector.Storable
-        Data.Params.Vector.StorableRaw
+        -- Data.Params.Vector.Storable
+        -- Data.Params.Vector.StorableRaw
         Data.Params.Vector.Unboxed
-        Data.Params.Vector.UnboxedRaw
+        -- Data.Params.Vector.UnboxedRaw
 
     Extensions:
         FlexibleInstances

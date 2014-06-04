@@ -437,6 +437,8 @@ There's still a couple of warts in the library:
 
 2.  The `mkParams` template haskell function currently only makes the necessary instances for `Static` and `RunTime` configurations.  The infrastructure for `Automatic` configurations must be done manually.  It is possible to automatically produce the required infrastructure for `Automatic` configurations as well, but I haven't figured out a way to do it without introducing overhead that's usually unnecessary.
 
-3.  I'm still not 100% satisfied with the way the types look.  They could probably be made much easier to use.
+3.  For simplicity, this package only currently implements unboxed vectors in this framework.  There is no reason, however, that boxed vectors and storable vectors could not be implemented as well.  This would allow storable storable vectors using all the same techniques as above.
+
+4.  I'm still not 100% satisfied with the way the types look.  They could probably still be made easier to use.
 
 **Please report any bugs/issues/feature requests!**

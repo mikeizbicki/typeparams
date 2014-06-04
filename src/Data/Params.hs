@@ -13,6 +13,8 @@ module Data.Params
     , with1Param
     , with1ParamAutomatic
     , apWith1Param
+    , apWith2Param
+    , apWith3Param
 
     , apWith1Param'
     , apWith2Param'
@@ -20,22 +22,17 @@ module Data.Params
 
     , mkWith1Param
     , mkApWith1Param
-
     , mkApWith2Param
-    , apWith2Param
     , mkApWith3Param
-    , apWith3Param
 
-    -- ** Classes
+    -- * Classes
     , HasDictionary (..)
     , ViewParam (..)
     , ParamDict (..)
     , ParamIndex
     , RunTimeToAutomatic (..)
     , StaticToAutomatic (..)
-
     , ApplyConstraint
-    , coerceParamDict
     , TypeLens (..)
     , GetParam
     , SetParam
@@ -43,6 +40,9 @@ module Data.Params
     , ApplyConstraint_GetType
     , ApplyConstraint_GetConstraint
 
+    -- * Internal coercion
+    -- these functions must be exported for the template haskell code to work
+    , coerceParamDict
     , mkRuleFrac
     , intparam 
     , floatparam
@@ -70,7 +70,6 @@ module Data.Params
 
     , mkParamInstance
     , mkReifiableConstraint
---     , mkReifiableConstraint'
 
     , mkGettersSetters
 
@@ -78,15 +77,7 @@ module Data.Params
     -- | These classes were shamelessly stollen from <https://www.fpcomplete.com/user/thoughtpolice/using-reflection this excellent reflection tutorial>.
     -- If you want to understand how this library works, that's the place to start.
     , ReifiableConstraint(..)
---     , WithParam (..)
     , ConstraintLift (..)
-
-    -- ** Helper functions
-    , using
-    , using'
-    , apUsing
-    , apUsing2
-    , apUsing'
 
     -- * Modules
     , module GHC.TypeLits
@@ -595,8 +586,7 @@ mkParams dataname = do
             , mkParamClass_Star paramstr
             ]
 
-    trace ("tyVarBndrL_Config="++show tyVarBndrL_Config++"\ntyVarBndrL_Star="++show tyVarBndrL_Star) $ 
-        return $ getterssetters 
+    return $ getterssetters 
         ++ (concat $ concat $ configparams) 
         ++ (concat $ concat $ starparams)
 

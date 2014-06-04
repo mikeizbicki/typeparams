@@ -5,6 +5,9 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE PolyKinds #-}
 module Data.Params.Vector.Unboxed
+    ( Vector 
+    , module Data.Params.Vector
+    )
     where
 
 import Control.Category
@@ -648,8 +651,8 @@ instance PseudoPrim elem => VG.Vector (Vector Automatic) elem where
 
 instance PseudoPrim elem => PseudoPrim (Vector Automatic elem) where
     data PseudoPrimInfo (Vector Automatic elem) = PseudoPrimInfo_VectorAutomatic
-        {-#UNPACK#-}!Int -- ^ length
-        {-#UNPACK#-}!Int -- ^ sizeOf
+        {-#UNPACK#-}!(Int) -- length
+        {-#UNPACK#-}!(Int) -- sizeOf
         {-#UNPACK#-}!(PseudoPrimInfo elem)
     
     {-# INLINE pp_sizeOf# #-}
