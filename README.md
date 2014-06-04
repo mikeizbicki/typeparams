@@ -19,7 +19,7 @@ cabal update
 cabal install typeparams
 ```
 
-## Tutorial: unnbox your unboxed vectors!
+## Tutorial: unbox your unboxed vectors!
 
 The remainder of this README is a literate haskell file.  Please follow along yourself!
 
