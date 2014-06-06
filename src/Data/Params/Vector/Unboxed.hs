@@ -38,10 +38,11 @@ import GHC.Prim
 import GHC.TypeLits
 
 import Data.Params
-import Data.Params.Instances
 import Data.Params.Vector
 import Data.Params.PseudoPrim
 import Unsafe.Coerce
+
+import Language.Haskell.TH.Syntax hiding (reify)
 import Debug.Trace
 
 
@@ -67,101 +68,6 @@ data instance Vector (Static len) elem = Vector
     {-#UNPACK#-}!Int 
     {-#UNPACK#-}!(PseudoPrimInfo elem)
     {-#UNPACK#-}!ByteArray
-
-type Veclen = 20
-type Numvec = 100
-veclen=fromIntegral $ natVal (Proxy::Proxy Veclen)
-numvec=fromIntegral $ natVal (Proxy::Proxy Numvec)
-
-dimLL1 :: [[Float]] = 
-            [ evalRand (replicateM veclen $ getRandomR (-10000,10000)) (mkStdGen i) | i <- [1..numvec]]
-
-dimLL2 :: [[Float]] = 
-            [ evalRand (replicateM veclen $ getRandomR (-10000,10000)) (mkStdGen i) | i <- [2..numvec+1]]
-
-vpusvpus1 = (VG.fromList $ map VG.fromList dimLL1
-    :: Vector (Static Numvec) (Vector (Static Veclen) Float))
-vpusvpus2 = (VG.fromList $ map VG.fromList dimLL2
-    :: Vector (Static Numvec) (Vector (Static Veclen) Float))
-
-v :: Vector (Static 1) (Vector (Static 1) (Vector (Static 10) Float))
-v = VG.singleton $ VG.singleton $ VG.fromList [1..10] 
-
-v' :: Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))
-v' = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
-
-va :: Vector (Static 1) (Vector (Static 1) (Vector Automatic Float))
-va = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
-
-vvv' :: Vector RunTime (Vector RunTime (Vector RunTime Float))
-vvv' = with1Param (_elem._elem._len) 10 
-     $ with1Param (_elem._len) 1 
-     $ with1Param _len 1 
-     $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
-
-vvv'' :: Vector Automatic (Vector Automatic (Vector Automatic Float))
-vvv'' = with1ParamAutomatic (_elem._elem._len) 10 
---       $ with1ParamAutomatic (_elem._len) 1 
---       $ with1ParamAutomatic _len 1 
-      $ VG.singleton $ VG.singleton $ VG.fromList [1..10] 
-
-vvv2 :: Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))
-vvv2 = with1Param (_elem._elem._len) 10 $ VG.singleton $ VG.singleton $ VG.fromList [1..10]
-
-w :: Vector Automatic (Vector Automatic Float)
-w = with1ParamAutomatic (_elem._len) 1
-  $ VG.singleton $ VG.singleton 1
-
-v'' :: Vector (Static 1) (Vector (Static 1) (Vector Automatic Float))
-v'' = runTimeToAutomatic (_elem._elem._len) 10 v'
-
-test = viewParam (_a._a._b._b._a._elem._len) $ 
-    Left $ Left $ Right $ Right $ Left $ v''
--- test = viewParam (_b._a._elem._len) $ Right $ Left $ v''
-
--- v'' = mkWith1Param 
---     (Proxy::Proxy (Vector (Static 1) (Vector (Static 1) (Vector RunTime Float))))
---     (_elem._elem._len)
---     10
---     (VG.singleton $ VG.singleton $ VG.fromList [1..10])
-
-u :: Vector (Static 1) (Vector (Static 10) Float)
-u = VG.singleton $ VG.fromList [1..10] 
-
--- u' = mkWith1Param (Proxy::Proxy (Vector (Static 1) (Vector RunTime Float)))
---         (_elem._len) 10 $ VG.singleton $ VG.fromList [1..10]
-
-u'' :: Vector (Static 1) (Vector RunTime Float)
-u'' = with1Param (_elem._len) 10 $ VG.singleton $ VG.fromList [1..10]
-
-show_u'' = mkApWith1Param
-    (Proxy :: Proxy (Vector (Static 1) (Vector RunTime Float)))
-    (Proxy :: Proxy String)
-    (_elem._len)
-    5
-    show
-    u''
-
--- u' :: Vector (Static 1) (Vector RunTime Int)
--- u' = withParam3 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
--- 
--- u'' :: Vector (Static 1) (Vector RunTime Int)
--- u'' = withParam3 (_elem._len $ 10) $ VG.singleton $ VG.fromList [1..10] 
--- 
--- v' = withParam3 (_len 10) $ VG.fromList [1..10] :: Vector RunTime Int
--- 
--- w :: Vector RunTime (Vector (Static 10) Int)
--- w = withParam3 (_len 1) $ VG.singleton $ VG.fromList [1..10] 
--- 
--- w' :: Vector RunTime (Vector RunTime Int)
--- w' = withParam3 (_len 1)
---    $ withParam3 (_elem._len $ 10)
---    $ VG.singleton $ VG.fromList [1..10] 
-
----------
-
-
--------------------
 
 instance
     ( KnownNat len
@@ -304,63 +210,6 @@ instance
             len
             size
             (mkPseudoPrimInfoFromRuntime (TypeLens::TypeLens Base p) p ppi)
-
--------------------
-
--- EndoFunctor
-
-class EFBase m
-_efbase :: TypeLens Base Base
-_efbase = TypeLens
-
--- efmap :: GetParam p t ~ a => TypeLens q p -> (a -> b) -> t -> SetParam p b t
--- efmap = 
-
--- class EFMap p t a b where
---     efmap :: EndoFunctor p t => GetParam p t ~ a => TypeLens q p -> (a -> b) -> t -> SetParam p b t
-
--- instance 
---     ( EFMap y t a b
---     , SetParam (x y) (SetParam y b a) t ~ SetParam (x y) b y
---     , GetParam y a ~ a
---     )  => EFMap (x y) t a b where
---     efmap lens f t = efmap (TypeLens::TypeLens q (x y)) (efmap (TypeLens::TypeLens r y) f) t
-
-type instance GetParam EFBase a = a
-type instance SetParam EFBase a t = a
-type instance GetParam Base a = a
-type instance SetParam Base a t = a
-
--- instance EFMap Base t t t where
---     efmap _ f a = f a
--- 
-class EndoFunctor p t where 
-    efmap :: GetParam p t ~ a => TypeLens q p -> (a -> b) -> t -> SetParam p b t
-
-instance EndoFunctor Base t where
-    efmap _ f a = f a
-
-type instance GetParam (Param_a q) (Either a b) = a
-type instance SetParam (Param_a q) a' (Either a b) = Either a' b
--- instance EndoFunctor (Param_a p) (Either a b)  where
---     efmap' _ f (Left a) = Left (f a)
---     efmap' _ f (Right b) = Right b
-
--- instance EndoFunctor (Param_a p) (Either a b)  where
---     efmap _ f (Left a) = Left (f a)
---     efmap _ f (Right b) = Right b
-
--- instance 
---     ( a ~ GetParam p a 
---     ) => EndoFunctor (Param_a p) (Either a b)  where
---     efmap _ f (Left a) = Left (efmap (TypeLens::TypeLens q p) f a)
---     efmap _ f (Right b) = Right b
-
--- instance EndoFunctor HasParam_b (Either a b) where
---     efmap _ f (Left a) = Left a
---     efmap _ f (Right b) = Right (f b)
-
-
 
 -------------------
 

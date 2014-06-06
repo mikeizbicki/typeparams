@@ -37,6 +37,10 @@ module Data.Params
     , GetParam
     , SetParam
     , Base
+    , _base
+    , zoom
+    , Zoom 
+    , EyePiece
     , ApplyConstraint_GetType
     , ApplyConstraint_GetConstraint
 
@@ -339,8 +343,6 @@ instance Category TypeLens where
     id = TypeLens
     a.b = TypeLens
     
-class Base a 
-
 -- data family ParamDict (p::k)
 
 class HasDictionary p where
@@ -358,8 +360,25 @@ type ApplyConstraint p m = (ApplyConstraint_GetConstraint p) (ApplyConstraint_Ge
 type family ApplyConstraint_GetConstraint (p::k) :: * -> Constraint 
 type family ApplyConstraint_GetType (p::k) t :: * 
 
-type family GetParam (p::k1) (t::k2) :: k3
-type family SetParam (p::k1) (a::k2) (t::k3) :: k3
+-- type family GetParam (p::k1) (t::k2) :: k3
+-- type family SetParam (p::k1) (a::k2) (t:: *) :: *
+type family GetParam (p::k1) (t:: *) :: k3
+type family SetParam (p::k1) (a::k2) (t:: *) :: *
+
+type family Zoom (p :: k1) :: k2
+type family EyePiece (p :: k1) :: k2
+-- type family Zoom (p :: * -> Constraint) :: * -> Constraint
+-- type family EyePiece (p :: * -> Constraint) :: (* -> Constraint) -> * -> Constraint
+
+zoom :: TypeLens a p -> TypeLens a (Zoom p)
+zoom lens = TypeLens
+
+class Base a 
+
+_base :: TypeLens Base Base
+_base = TypeLens
+type instance GetParam Base t = t
+type instance SetParam Base (c :: *) t = c
 
 type ParamIndex p = 
     ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
@@ -561,7 +580,7 @@ mkParams dataname = do
         filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Config"
         filtergo _ = False
     
-    getterssetters <- mkGettersSetters dataname
+--     getterssetters <- mkGettersSetters dataname
 
     configparams <- forM tyVarBndrL_Config $ \tyVarBndr -> do
         let paramstr = tyVarBndr2str tyVarBndr
@@ -574,6 +593,7 @@ mkParams dataname = do
             , mkApplyConstraint_Config paramstr dataname
             , mkHasDictionary_Config paramstr (kind2type k)
             , mkParamInstance paramstr (kind2type k) dataname
+            , mkTypeFamilies_Common paramstr dataname
             ]
 
     starparams <- forM tyVarBndrL_Star $ \tyVarBndr -> do
@@ -584,9 +604,11 @@ mkParams dataname = do
             , mkApplyConstraint_Star paramstr dataname
             , mkHasDictionary_Star paramstr
             , mkParamClass_Star paramstr
+            , mkTypeFamilies_Common paramstr dataname
+            , mkTypeFamilies_Star paramstr dataname
             ]
 
-    return $ getterssetters 
+    return $ []
         ++ (concat $ concat $ configparams) 
         ++ (concat $ concat $ starparams)
 
@@ -657,30 +679,195 @@ applyTyVarBndrL name xs = go xs (ConT name)
 --
 -- > data Type v1 v2 ... vk = ...
 --
--- creates "GetParam" instances of the form
+-- Then for for paramstr vi, create instances of the form
 --
--- > type instance GetParam Param_v1 (Type v1 v2 ... vk) = v1
--- > type instance GetParam Param_v2 (Type v1 v2 ... vk) = v2
--- > ...
--- > type instnce GetParam Param_vk (Type v1 v2 ... vk) = vk
+-- > type instance GetParam Param_vi     (Type ... vi ... ) = vi
+-- > type instance SetParam Param_vi vi' (Type ... vi ... ) = Type ... vi' ...
 --
--- and "SetParam" instances of the form
+-- This function requires that the @Param_@ classes have already been defined.
 --
--- > type instance SetParam Param_v1 newparam (Type v1 v2 ... vk) = Type newparam v2 ... vk
--- > type instance SetParam Param_v2 newparam (Type v1 v2 ... vk) = Type v1 newparam ... vk
--- > ...
--- > type instance SetParam Param_vk newparam (Type v1 v2 ... vk) = Type v1 v2 ... newparam
---
--- This function requires that the Param_vk classes have already been defined.
---
-mkGettersSetters :: Name -> Q [Dec]
-mkGettersSetters dataName = do
-    c <- TH.reify dataName
-    let tyVarBndrL = case c of
+mkTypeFamilies_Common :: String -> Name -> Q [Dec]
+mkTypeFamilies_Common paramstr dataName = do
+    info <- TH.reify dataName
+    let tyVarBndrL = case info of
             TyConI (NewtypeD _ _ xs _ _) -> xs
             TyConI (DataD _ _ xs _ _ ) -> xs
             FamilyI (FamilyD _ _ xs _) _ -> xs
-            otherwise -> error $ "Cannot mkGettersSetters on "++nameBase dataName++"; reify = "++show c
+
+    let getters = 
+            [ TySynInstD
+                ( mkName "GetParam" )
+                ( TySynEqn
+                    [ ConT $ mkName $ "Param_" ++paramstr 
+                    , applyTyVarBndrL dataName tyVarBndrL
+                    ]
+                    ( VarT $ mkName $ paramstr
+                    )
+                )
+            ]
+
+    let setters = 
+            [ TySynInstD
+                ( mkName "SetParam" )
+                ( TySynEqn
+                    [ ConT $ mkName $ "Param_" ++paramstr 
+                    , VarT $ mkName $ "newparam"
+                    , applyTyVarBndrL dataName tyVarBndrL
+                    ]
+                    ( applyTyVarBndrL dataName $ map 
+                        (\a -> if tyVarBndr2str a==paramstr
+                            then PlainTV $ mkName "newparam"
+                            else a
+                        ) 
+                        tyVarBndrL 
+                    )
+                )
+            ]
+    return $ getters++setters
+
+-- | Given a data type of the form
+--
+-- > data Type v1 v2 ... vk = ...
+--
+-- Then for paramstr vi, create instances of the form
+--
+-- > type instance GetParam (Param_vi p) (Type ... vi ... ) = GetParam p vi
+--
+-- > type instance SetParam (Param_vi p) vi' (Type ... vi ... )) 
+-- >    = SetParam Param_vi (SetParam p vi' vi) t
+--
+-- > type instance Zoom (Param_vi a) = a
+-- > type instance EyePiece (Param_vi a) = Param_vi
+--
+-- This function requires that the @Param_@ classes have already been defined.
+--
+mkTypeFamilies_Star :: String -> Name -> Q [Dec]
+mkTypeFamilies_Star paramstr dataName = do
+    info <- TH.reify dataName
+    let tyVarBndrL = case info of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+
+    let zooms =
+            [ TySynInstD
+                ( mkName "Zoom" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
+                    ( VarT $ mkName "p" )
+
+                )
+            , TySynInstD
+                ( mkName "EyePiece" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
+                    ( ConT $ mkName $ "Param_"++paramstr )
+
+                )
+            ]
+
+    let getters = 
+            [ TySynInstD
+                ( mkName "GetParam" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_"++paramstr ) (VarT $ mkName "p")
+                    , applyTyVarBndrL dataName tyVarBndrL
+                    ]
+                    ( AppT 
+                        ( AppT 
+                            ( ConT $ mkName "GetParam") 
+                            ( VarT $ mkName "p")
+                        ) 
+                        ( VarT $ mkName paramstr )
+                    )
+                )
+            ]
+
+    let setters = 
+            [ TySynInstD
+                ( mkName "SetParam" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p")
+                    , VarT $ mkName $ "newparam"
+                    , VarT $ mkName "t" 
+                    ]
+                    ( AppT
+                        ( AppT
+                            ( AppT
+                                ( ConT $ mkName "SetParam" )
+                                ( ConT $ mkName $ "Param_"++paramstr)
+                            )
+                            ( AppT
+                                ( AppT
+                                    ( AppT
+                                        ( ConT $ mkName "SetParam" )
+                                        ( VarT $ mkName "p" )
+                                    )
+                                    ( VarT $ mkName "newparam" )
+                                )
+                                ( AppT
+                                    ( AppT
+                                        ( ConT $ mkName "GetParam" )
+                                        ( ConT $ mkName $ "Param_"++paramstr )
+                                    )
+                                    ( VarT $ mkName "t" )
+                                )
+                            )
+                        )
+                        ( VarT $ mkName "t" )
+                    )
+                )
+            ]
+
+    return $ zooms++getters++setters
+
+-- | Given a data type of the form
+--
+-- > data Type v1 v2 ... vk = ...
+--
+-- Then for each type param vi, create instances of the form
+--
+-- > type instance GetParam Param_vi     (Type ... vi ... ) = vi
+-- > type instance GetParam (Param_vi p) (Type ... vi ... ) = GetParam p vi
+--
+-- > type instance SetParam Param_vi vi'     (Type ... vi ... )) 
+-- >    = Type ... vi' ...
+-- > type instance SetParam (Param_vi p) vi' (Type ... vi ... )) 
+-- >    = SetParam Param_vi (SetParam p vi' vi) t
+--
+-- > type instance Zoom (Param_vi a) = a
+-- > type instance EyePiece (Param_vi a) = Param_vi
+--
+-- This function requires that the @Param_@ classes have already been defined.
+--
+mkGettersSetters :: Name -> Q [Dec]
+mkGettersSetters dataName = do
+    info <- TH.reify dataName
+    let tyVarBndrL = case info of
+            TyConI (NewtypeD _ _ xs _ _) -> xs
+            TyConI (DataD _ _ xs _ _ ) -> xs
+            FamilyI (FamilyD _ _ xs _) _ -> xs
+
+    let zooms =
+            [ TySynInstD
+                ( mkName "Zoom" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_"++tyVarBndr2str x) (VarT $ mkName "p") ]
+                    ( VarT $ mkName "p" )
+
+                )
+            | x <- tyVarBndrL
+            ]
+            ++
+            [ TySynInstD
+                ( mkName "EyePiece" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_"++tyVarBndr2str x) (VarT $ mkName "p") ]
+                    ( ConT $ mkName $ "Param_"++tyVarBndr2str x )
+
+                )
+            | x <- tyVarBndrL
+            ]
 
     let getters = 
             [ TySynInstD
@@ -690,6 +877,23 @@ mkGettersSetters dataName = do
                     , applyTyVarBndrL dataName tyVarBndrL
                     ]
                     ( VarT $ mkName $ tyVarBndr2str x
+                    )
+                )
+            | x <- tyVarBndrL
+            ]
+            ++
+            [ TySynInstD
+                ( mkName "GetParam" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_" ++ tyVarBndr2str x) (VarT $ mkName "p")
+                    , applyTyVarBndrL dataName tyVarBndrL
+                    ]
+                    ( AppT 
+                        ( AppT 
+                            ( ConT $ mkName "GetParam") 
+                            ( VarT $ mkName "p")
+                        ) 
+                        ( VarT $ mkName $ tyVarBndr2str x)
                     )
                 )
             | x <- tyVarBndrL
@@ -713,8 +917,44 @@ mkGettersSetters dataName = do
                 )
             | x <- tyVarBndrL
             ]
+            ++
+            [ TySynInstD
+                ( mkName "SetParam" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_" ++ tyVarBndr2str x) (VarT $ mkName "p")
+                    , VarT $ mkName $ "newparam"
+                    , VarT $ mkName "t" 
+                    ]
+                    ( AppT
+                        ( AppT
+                            ( AppT
+                                ( ConT $ mkName "SetParam" )
+                                ( ConT $ mkName $ "Param_" ++ tyVarBndr2str x)
+                            )
+                            ( AppT
+                                ( AppT
+                                    ( AppT
+                                        ( ConT $ mkName "SetParam" )
+                                        ( VarT $ mkName "p" )
+                                    )
+                                    ( VarT $ mkName "newparam" )
+                                )
+                                ( AppT
+                                    ( AppT
+                                        ( ConT $ mkName "GetParam" )
+                                        ( ConT $ mkName $ "Param_" ++ tyVarBndr2str x )
+                                    )
+                                    ( VarT $ mkName "t" )
+                                )
+                            )
+                        )
+                        ( VarT $ mkName "t" )
+                    )
+                )
+            | x <- tyVarBndrL
+            ]
 
-    return $ getters++setters
+    return $ zooms++getters++setters
 
 -- | Creates classes of the form
 --
