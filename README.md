@@ -427,7 +427,7 @@ By using the generic `lp_distance` function, we get all the speed advantages of 
 
 ##Thoughts for the road
 
-It is popular to think of these type level configurations as "light weight dependent types."  The traditional use for dependent types is to make programs safer... but maybe they can make our programs faster too!?  Exploring both of these possibilities is the goal of `typeparams` library.
+It is popular to think of these type level configurations as "lightweight dependent types."  The traditional use for dependent types is to make programs safer... but maybe they can make our programs faster too!?  Exploring both of these possibilities is the goal of `typeparams` library.
 
 There's still a couple of warts in the library:
 
