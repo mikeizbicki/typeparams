@@ -12,23 +12,21 @@ data Example p1 (p2::Config Nat) (p3::Constraint) = Example
  
 2. A simple interface for [supercompilation](http://stackoverflow.com/questions/9067545/what-is-supercompilation).  In the example below, we combine this library and the [fast-math](https://github.com/liyang/fast-math) library to get up to a **40x speed improvement** when calculating the Lp distance between vectors.   
 
-Further [documentation can be found on hackage], and examples over other data types can be found in the [examples folder](https://github.com/mikeizbicki/typeparams/tree/master/examples).  You can download the library from github directly, or via cabal:
+Further [documentation can be found on hackage](http://hackage.haskell.org/package/typeparams), and examples with non-vector data types can be found in the [examples folder](https://github.com/mikeizbicki/typeparams/tree/master/examples).  You can download the library from github directly, or via cabal:
 
 ```
 cabal update
 cabal install typeparams
 ```
 
-## Tutorial: unnbox your unboxed vectors!
+## Tutorial: unbox your unboxed vectors!
 
 The remainder of this README is a literate haskell file.  Please follow along yourself!
 
 ```
 > import Control.Category
 > import Data.Params
-> import Data.Params.Instances
 > import Data.Params.Vector.Unboxed 
-> import Data.Params.Vector
 > import qualified Data.Vector.Generic as VG
 > import Prelude hiding ((.),id)
 ```
@@ -54,7 +52,7 @@ Here, `Static` means that the parameter is known statically at compile time.  If
 
 `v2` will behave exactly like the unboxed vectors in the `vector` package. 
 
-The `Config` param generalizes the concept of implicit configurations introduced by [this functional pearl](http://www.cs.rutgers.edu/~ccshan/prepose/prepose.pdf) by Oleg Kiselyov and Chung-chieh Shan.  (See also the [ImplicitParams GHC extension](http://www.haskell.org/ghc/docs/latest/html/users_guide/other-type-extensions.html#implicit-parameters).  It can take on types of `Static x`, `Automatic`, or `RunTime`.  This tutorial will begin by working through the capabilities of the `Static` configurations before discussing the other options.
+The `Config` param generalizes the concept of implicit configurations introduced by [this functional pearl](http://www.cs.rutgers.edu/~ccshan/prepose/prepose.pdf) by Oleg Kiselyov and Chung-chieh Shan.  (See also the [ImplicitParams GHC extension](http://www.haskell.org/ghc/docs/latest/html/users_guide/other-type-extensions.html#implicit-parameters).)  It can take on types of `Static x`, `Automatic`, or `RunTime`.  This tutorial will begin by working through the capabilities of the `Static` configurations before discussing the other options.
 
 ### From type params to values
 
@@ -109,13 +107,13 @@ What if we want to view the length of a nested inner vector?  The value `_elem :
 _elem._len :: TypeLens Base (Param_elem Param_len)
 ```
 
-`_elem` and `Param_elem` were also created by `mkParams`.  In general, `mkParams` will generate these type lenses for every type param of its argument.  If the type param p1 has kind `*`, then the type lens will have type `_p1 :: TypeLens p (Param_p1 p)` and the class will have kind `Param_p1 :: (* -> Constraint) -> * -> Constraint`.  If the type param has any other kind (e.g. `Config Nat`), then `mkParams` will generate `_p1 :: TypeLens Base Param_p1` and `Param_p1 :: * -> Constraint`.
+`_elem` and `Param_elem` were also created by `mkParams`.  In general, `mkParams` will generate these type lenses for every type param of its argument.  If the type param `p1` has kind `*`, then the type lens will have type `_p1 :: TypeLens p (Param_p1 p)` and the class will have kind `Param_p1 :: (* -> Constraint) -> * -> Constraint`.  If the type param has any other kind (e.g. `Config Nat`), then `mkParams` will generate `_p1 :: TypeLens Base Param_p1` and `Param_p1 :: * -> Constraint`.
 
 The type of `_elem` allows us to combine it with `_len` to view the inner parameters of a type.  Using the vectors we created above, we can view their parameters with:
 
 ```
 ghci> viewParam _len vv1
-1
+2
 
 ghci> viewParam (_elem._len) vv1
 10
@@ -185,7 +183,7 @@ ghci> viewParam (_b._b._a._elem._len) (undefined::Monster Float)
 10
 ```
 
-No matter how large the type is, we can compose `TypeLens`es to access any parameter.  
+No matter how large the type is, we can compose `TypeLens`es to access any configuration parameter.  
 
 It would be nice if the type lenses for these built in data types had more meaningful names (like `_just`,`_left`, and `_right`), but this would require a change to base.
 
@@ -371,7 +369,7 @@ The file [examples/criterion.hs](https://github.com/mikeizbicki/typeparams/blob/
 
 The green line uses vectors provided in the `Data.Params.Vector.Unboxed` module of type `Vector Automatic (Vector Automatic Float)`; and the red line uses standard vectors from the `vector` package of type `Data.Vector.Vector (Data.Vector.Unboxed.Vector Float)`.  In both cases, the number of dimensions of the data points was 400.
 
-Switching to unboxed unboxed vectors yields a nice performance boost of about 25%.  The best part is that we barely have to change existing code at all.  The only difference between the interface for a boxed unboxed vector and an unboxed unboxed vector is the initial construction.
+Switching to unboxed unboxed vectors yields a nice performance boost of about 25%.  The best part is that we barely have to change existing code at all.  The only difference between the interface for a boxed unboxed vector and an unboxed unboxed vector is the initial construction.  **If you have code that creates boxed unboxed vectors, you should get a similar performance gain switching over to this library.**
 
 ###Lebesgue or not to beg, that is the supercompilation 
 
@@ -384,14 +382,14 @@ If we combine this typeparams package with the [fast-math](https://github.com/li
 In haskell code we can create a `newtype` that will encode the value of `p` by:
 
 ```
-newtype Lebesgue (n::Config Frac) (vec :: * -> *) elem = Lebesgue (vec elem)
+newtype Lebesgue (p::Config Frac) (vec :: * -> *) elem = Lebesgue (vec elem)
 
 instance VG.Vector vec elem => VG.Vector (Lebesgue p vec) elem where
     {- ... -}
 
 ```
 
-(See the file [examples/supercomp-lebesgue.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/supercomp-lebesgue.hs) for implementation details.)
+The `Frac` kind is similar to the `Nat` kind, except it represents any positive fraction at the type level.  The file [src/Data/Params/Frac.hs](https://github.com/mikeizbicki/typeparams/blob/master/src/Data/Params/Frac.hs) contains the implementation of `Frac`.  The file [examples/supercomp-lebesgue.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/supercomp-lebesgue.hs) for contains the implementation details of the `Lebsgue` example.
 
 We can then define a generic distance function over _any_ Lp space as:
 
@@ -399,35 +397,35 @@ We can then define a generic distance function over _any_ Lp space as:
 lp_distance :: 
     ( VG.Vector vec elem
     , Floating elem
-    , ViewParam Param_n (Lebesgue n vec elem)
-    ) => Lebesgue n vec elem -> Lebesgue n vec elem -> elem
-lp_distance !v1 !v2 = (go 0 (VG.length v1-1))**(1/n)
+    , ViewParam Param_p (Lebesgue p vec elem)
+    ) => Lebesgue p vec elem -> Lebesgue p vec elem -> elem
+lp_distance !v1 !v2 = (go 0 (VG.length v1-1))**(1/p)
     where
-        n = viewParam _n v1
+        p = viewParam _p v1
 
         go tot (-1) = tot
-        go tot i = go (tot+diff1**n) (i-1)
+        go tot i = go (tot+diff1**p) (i-1)
             where 
                 diff1 = abs $ v1 `VG.unsafeIndex` i-v2 `VG.unsafeIndex` i
 ```
 
-The value of `p` can now be set at compile time or at run time using the `typeparams` machinery.  If we know the value at compile time, however, GHC can perform a number of optimizations:  
+The value of `p` can now be set at compile time or at run time using the typeparams machinery.  If we know the value at compile time, however, GHC can perform a number of optimizations:  
 
 1.  The most important optimization is that the value of `p` never has to be stored in memory or even in a register.  The resulting assembly uses what is called [immediate instructions](http://programmedlessons.org/AssemblyTutorial/Chapter-11/ass11_2.html).  These assembly instructions are very fast in inner loops, and make the code run about 2x faster no matter what the value of `p` is.  (The example [examples/coretest.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/coretest.hs) provides a minimal code sample that facilitates inspecting the effect of different parameters on the core code and resulting assembly.)
 
 2.  For specific values of `p`, we can optimize the formula of the Lp distance considerably.  For example, exponentiation is very slow on x86 CPUs.  Instead of evaluating `x**2`, it is much cheaper to evaluate `x*x`.  Similarly, instead of evaluating `x**(1/2)`, it is cheaper to evaluate `sqrt x`.  These optimizations are not safe for floating point numbers (small amounts of precision can be lost), so GHC doesn't perform them by default.  The [fast-math](https://github.com/liyang/fast-math) library is needed to cause these optimizations. 
 
-The plot below shows the resulting run times.  The green values are the run times of the `lp_distance` function where `p` is specified using `Static`; the red for when `p` is specified using `RunTime`; and the blue for hand-optimized routines.
+The plot below shows the resulting run times:   
 
 <p align="center">
 <img src="http://izbicki.me/public/cs/github/supercomp-lebesgue2.png"/>
 </p>
 
-Notice that for the L2 distnce, the compiler gives us a 40x speed boost when we switch from `RunTime` to `Static` configurations.  
+The green values are the run times of the `lp_distance` function where `p` is specified using `Static`; the red for when `p` is specified using `RunTime`; and the blue for hand-optimized routines.  Hashed columns indicate the test was run with the `Numeric.FastMath` import.  All code was compiled using llvm and the optimization flags: `-optlo -O3 -optlo -enable-unsafe-fp-math`.  Notice that there are some cases where the fast-math library is able to perform optimizations that llvm's `-enable-unsafe-fp-math` flag cannot.
 
 By using the generic `lp_distance` function, we get all the speed advantages of hand-optimized code, but we still have the flexibility of having users enter whatever `p` value they want to compute.  We also avoid the need to manually write many hand-tuned distance functions.
 
-##Conclusion 
+##Thoughts for the road
 
 It is popular to think of these type level configurations as "light weight dependent types."  The traditional use for dependent types is to make programs safer... but maybe they can make our programs faster too!?  Exploring both of these possibilities is the goal of `typeparams` library.
 
@@ -438,7 +436,5 @@ There's still a couple of warts in the library:
 2.  The `mkParams` template haskell function currently only makes the necessary instances for `Static` and `RunTime` configurations.  The infrastructure for `Automatic` configurations must be done manually.  It is possible to automatically produce the required infrastructure for `Automatic` configurations as well, but I haven't figured out a way to do it without introducing overhead that's usually unnecessary.
 
 3.  For simplicity, this package only currently implements unboxed vectors in this framework.  There is no reason, however, that boxed vectors and storable vectors could not be implemented as well.  This would allow storable storable vectors using all the same techniques as above.
-
-4.  I'm still not 100% satisfied with the way the types look.  They could probably still be made easier to use.
 
 **Please report any bugs/issues/feature requests!**
