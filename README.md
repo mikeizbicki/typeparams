@@ -389,7 +389,7 @@ instance VG.Vector vec elem => VG.Vector (Lebesgue p vec) elem where
 
 ```
 
-The `Frac` kind is similar to the `Nat` kind, except it represents any positive fraction at the type level.  The file [src/Data/Params/Frac.hs](https://github.com/mikeizbicki/typeparams/blob/master/src/Data/Params/Frac.hs) contains the implementation of `Frac`.  The file [examples/supercomp-lebesgue.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/supercomp-lebesgue.hs) for contains the implementation details of the `Lebsgue` example.
+The `Frac` kind is similar to the `Nat` kind, except it represents any positive fraction at the type level.  The file [src/Data/Params/Frac.hs](https://github.com/mikeizbicki/typeparams/blob/master/src/Data/Params/Frac.hs) contains the implementation of `Frac`.  The file [examples/supercomp-lebesgue.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/supercomp-lebesgue.hs) for contains the implementation details of the `Lebesgue` example.
 
 We can then define a generic distance function over _any_ Lp space as:
 
