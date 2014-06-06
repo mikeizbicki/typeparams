@@ -254,7 +254,7 @@ ghci> apWith3Param (_elem._elem._len) 10 (_elem._len) 1 _len 1 show vvv3
 
 #### A bug in GHC!
 
-Unfortunately, due to a [bug in GHC 7.8.2's typechecker](https://ghc.haskell.org/trac/ghc/ticket/9090), the above code doesn't typecheck.  We must explicitly specify the specialized type of `apWithNParam` for it to work.  This is syntactically very awkward.  As a temporary work around, the library provides the function:
+Unfortunately, due to a [bug in GHC 7.8.2's typechecker](https://ghc.haskell.org/trac/ghc/ticket/9090), the above code doesn't typecheck.  We must explicitly specify the specialized type of `apWithNParam` for it to work.  This is syntactically very awkward.  As a temporary workaround, the library provides the function:
 
 ```
 apWith1Param' :: m -> (
@@ -389,7 +389,7 @@ instance VG.Vector vec elem => VG.Vector (Lebesgue p vec) elem where
 
 ```
 
-The `Frac` kind is similar to the `Nat` kind, except it represents any positive fraction at the type level.  The file [src/Data/Params/Frac.hs](https://github.com/mikeizbicki/typeparams/blob/master/src/Data/Params/Frac.hs) contains the implementation of `Frac`.  The file [examples/supercomp-lebesgue.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/supercomp-lebesgue.hs) for contains the implementation details of the `Lebsgue` example.
+The `Frac` kind is similar to the `Nat` kind, except it represents any positive fraction at the type level.  The file [src/Data/Params/Frac.hs](https://github.com/mikeizbicki/typeparams/blob/master/src/Data/Params/Frac.hs) contains the implementation of `Frac`.  The file [examples/supercomp-lebesgue.hs](https://github.com/mikeizbicki/typeparams/blob/master/examples/supercomp-lebesgue.hs) for contains the implementation details of the `Lebesgue` example.
 
 We can then define a generic distance function over _any_ Lp space as:
 
@@ -427,7 +427,7 @@ By using the generic `lp_distance` function, we get all the speed advantages of 
 
 ##Thoughts for the road
 
-It is popular to think of these type level configurations as "light weight dependent types."  The traditional use for dependent types is to make programs safer... but maybe they can make our programs faster too!?  Exploring both of these possibilities is the goal of `typeparams` library.
+It is popular to think of these type level configurations as "lightweight dependent types."  The traditional use for dependent types is to make programs safer... but maybe they can make our programs faster too!?  Exploring both of these possibilities is the goal of `typeparams` library.
 
 There's still a couple of warts in the library:
 
