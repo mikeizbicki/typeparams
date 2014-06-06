@@ -254,7 +254,7 @@ ghci> apWith3Param (_elem._elem._len) 10 (_elem._len) 1 _len 1 show vvv3
 
 #### A bug in GHC!
 
-Unfortunately, due to a [bug in GHC 7.8.2's typechecker](https://ghc.haskell.org/trac/ghc/ticket/9090), the above code doesn't typecheck.  We must explicitly specify the specialized type of `apWithNParam` for it to work.  This is syntactically very awkward.  As a temporary work around, the library provides the function:
+Unfortunately, due to a [bug in GHC 7.8.2's typechecker](https://ghc.haskell.org/trac/ghc/ticket/9090), the above code doesn't typecheck.  We must explicitly specify the specialized type of `apWithNParam` for it to work.  This is syntactically very awkward.  As a temporary workaround, the library provides the function:
 
 ```
 apWith1Param' :: m -> (
