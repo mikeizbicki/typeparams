@@ -15,7 +15,6 @@ import Prelude hiding ((.),id)
 
 import Control.Monad
 import Control.Monad.Primitive
-import Control.Monad.Random
 import Control.DeepSeq
 import Data.Primitive
 import Data.Primitive.ByteArray
@@ -40,9 +39,7 @@ import GHC.TypeLits
 import Data.Params
 import Data.Params.Vector
 import Data.Params.PseudoPrim
-import Unsafe.Coerce
 
-import Language.Haskell.TH.Syntax hiding (reify)
 import Debug.Trace
 
 

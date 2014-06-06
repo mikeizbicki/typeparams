@@ -36,8 +36,7 @@ Library
         ghc-prim            ,
 
         -- examples
-        vector              >= 0.10,
-        MonadRandom         >= 0.1.13
+        vector              >= 0.10
         
     hs-source-dirs:     
         src
