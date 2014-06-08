@@ -36,6 +36,7 @@ module Data.Params
     , TypeLens (..)
     , GetParam
     , SetParam
+    , SetParam'
     , Base
     , _base
     , zoom
@@ -364,6 +365,7 @@ type family ApplyConstraint_GetType (p::k) t :: *
 -- type family SetParam (p::k1) (a::k2) (t:: *) :: *
 type family GetParam (p::k1) (t:: *) :: k3
 type family SetParam (p::k1) (a::k2) (t:: *) :: *
+type family SetParam' (p :: * -> Constraint) (a :: *) (t :: *) :: *
 
 type family Zoom (p :: k1) :: k2
 type family EyePiece (p :: k1) :: k2
@@ -379,6 +381,7 @@ _base :: TypeLens Base Base
 _base = TypeLens
 type instance GetParam Base t = t
 type instance SetParam Base (c :: *) t = c
+type instance SetParam' Base c t = c
 
 type ParamIndex p = 
     ( ReifiableConstraint (ApplyConstraint_GetConstraint p)
@@ -567,20 +570,31 @@ apWith3Param lens1 v1 lens2 v2 lens3 v3 = flip $ apUsing3
 -- > data NearestNeighbor (k :: Param Nat) (maxdist :: Param Float) elem = ...
 -- > mkParams ''NearestNeighbor
 --
-
 mkParams :: Name -> Q [Dec]
 mkParams dataname = do
     info <- TH.reify dataname
+
+    -- if dataname refers to a type synonym, then extract the principal
+    -- constructor and call mkParams' on that
+    case info of 
+        TyConI (TySynD _ _             (ConT dataname')      ) -> mkParams' dataname'
+        TyConI (TySynD _ _       (AppT (ConT dataname') _)   ) -> mkParams' dataname'
+        TyConI (TySynD _ _ (AppT (AppT (ConT dataname') _) _)) -> mkParams' dataname'
+        otherwise -> mkParams' dataname
+
+-- this function assumes that dataname is not a type synonym
+mkParams' :: Name -> Q [Dec]
+mkParams' dataname = do
+    info <- TH.reify dataname
     let tyVarBndrL = case info of
+            FamilyI (FamilyD _ _ xs _) _ -> xs
             TyConI (NewtypeD _ _ xs _ _) -> xs
             TyConI (DataD _ _ xs _ _) -> xs
-            FamilyI (FamilyD _ _ xs _) _ -> xs
+            otherwise -> error $ "mkParams case; info="++show info
 
     let (tyVarBndrL_Config,tyVarBndrL_Star) = partition filtergo tyVarBndrL 
         filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Config"
         filtergo _ = False
-    
---     getterssetters <- mkGettersSetters dataname
 
     configparams <- forM tyVarBndrL_Config $ \tyVarBndr -> do
         let paramstr = tyVarBndr2str tyVarBndr
@@ -735,6 +749,8 @@ mkTypeFamilies_Common paramstr dataName = do
 --
 -- > type instance SetParam (Param_vi p) vi' (Type ... vi ... )) 
 -- >    = SetParam Param_vi (SetParam p vi' vi) t
+-- > type instance SetParam' (Param_vi p) vi' (Type ... vi ... )) 
+-- >    = SetParam Param_vi (SetParam p vi' vi) t
 --
 -- > type instance Zoom (Param_vi a) = a
 -- > type instance EyePiece (Param_vi a) = Param_vi
@@ -786,6 +802,39 @@ mkTypeFamilies_Star paramstr dataName = do
     let setters = 
             [ TySynInstD
                 ( mkName "SetParam" )
+                ( TySynEqn
+                    [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p")
+                    , VarT $ mkName $ "newparam"
+                    , VarT $ mkName "t" 
+                    ]
+                    ( AppT
+                        ( AppT
+                            ( AppT
+                                ( ConT $ mkName "SetParam" )
+                                ( ConT $ mkName $ "Param_"++paramstr)
+                            )
+                            ( AppT
+                                ( AppT
+                                    ( AppT
+                                        ( ConT $ mkName "SetParam" )
+                                        ( VarT $ mkName "p" )
+                                    )
+                                    ( VarT $ mkName "newparam" )
+                                )
+                                ( AppT
+                                    ( AppT
+                                        ( ConT $ mkName "GetParam" )
+                                        ( ConT $ mkName $ "Param_"++paramstr )
+                                    )
+                                    ( VarT $ mkName "t" )
+                                )
+                            )
+                        )
+                        ( VarT $ mkName "t" )
+                    )
+                )
+            , TySynInstD
+                ( mkName "SetParam'" )
                 ( TySynEqn
                     [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p")
                     , VarT $ mkName $ "newparam"
