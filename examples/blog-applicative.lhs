@@ -3,7 +3,7 @@
 > {-# LANGUAGE TemplateHaskell #-}
 > {-# LANGUAGE ScopedTypeVariables #-}
 > {-# LANGUAGE KindSignatures #-}
-> {-# LANGUAGE TypeFamilies #-}
+> {-# LANGUAGE TypeFamilies #-}combintator
 > {-# LANGUAGE MultiParamTypeClasses #-}
 > {-# LANGUAGE UndecidableInstances #-}
 > {-# LANGUAGE FlexibleInstances #-}
@@ -193,7 +193,7 @@ Right "error"
 -------------------
 -- making it pure
 
-Thisis cool, but it's not yet very generic.  Everytime we want a success, we have to manually specify the constructors we want to use.  We can avoid that using the pure function.  It's type signature is:
+This is cool, but it's not yet very generic.  Everytime we want a success, we have to manually specify the constructors we want to use.  We can avoid that using the pure function.  It's type signature is:
 
 pure :: Applicative lens tb 
      => GetParam lens tb -> TypeLens Base lens -> tb
@@ -210,7 +210,7 @@ The important thing to notice is that the second to last parameter takes a TypeL
 
 But this is nasty!  We have to specify the same TypeLens everywhere we want to use the pure function.
 
-Thankfully, we don't have to do this.  The whole point of lenses is to create crazy new combinators that reduce boilerplate!  So let's do that!  The "ap minus" combintator will automatically apply the lens for us:
+Thankfully, we don't have to do this.  The whole point of lenses is to create crazy new combinators that reduce boilerplate!  So let's do that!  The "ap minus" combinator will automatically apply the lens for us:
 
 > infixl 4 <*>-
 > (tf <*>- ta) lens = (tf <*> ta lens) lens
