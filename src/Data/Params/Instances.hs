@@ -4,9 +4,4 @@
 module Data.Params.Instances
     where
 
-import Data.Maybe
 
-import Data.Params
-
-mkParams ''Maybe
-mkParams ''Either

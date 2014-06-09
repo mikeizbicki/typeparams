@@ -1,5 +1,5 @@
 Name:                typeparams
-Version:             0.0.2.0
+Version:             0.0.3.0
 Synopsis:            Lens-like interface for type level parameters; allows unboxed unboxed vectors and supercompilation
 Description:         
     This library provides a lens-like interface for working with type parameters. In the code:
@@ -17,22 +17,18 @@ Author:              Mike izbicki
 Maintainer:          mike@izbicki.me
 Build-Type:          Simple
 Cabal-Version:       >=1.8
-homepage:            http://github.com/mikeizbicki/params/
-bug-reports:         http://github.com/mikeizbicki/params/issues
+homepage:            http://github.com/mikeizbicki/typeparams/
+bug-reports:         http://github.com/mikeizbicki/typeparams/issues
 
 Library
     Build-Depends:      
-        -- common dependencies
-        base                >= 3 && < 5,
-        template-haskell,
+        base                >= 4.7 && < 5,
         deepseq             >= 1.3,
-
-        -- 
         tagged              >= 0.7,
         reflection          >= 1.3,
         constraints         >= 0.3.4,
-
         primitive           >= 0.5,
+        template-haskell    ,
         ghc-prim            ,
 
         -- examples

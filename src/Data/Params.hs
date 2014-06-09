@@ -592,7 +592,11 @@ mkParams' dataname = do
             TyConI (DataD _ _ xs _ _) -> xs
             otherwise -> error $ "mkParams case; info="++show info
 
-    let (tyVarBndrL_Config,tyVarBndrL_Star) = partition filtergo tyVarBndrL 
+    let tyVarBndrL' = filter go tyVarBndrL
+        go (KindedTV name _) = head (nameBase name) /= '_'
+        go (PlainTV name)    = head (nameBase name) /= '_'
+
+    let (tyVarBndrL_Config,tyVarBndrL_Star) = partition filtergo tyVarBndrL'
         filtergo (KindedTV _ (AppT (ConT maybe) _)) = nameBase maybe=="Config"
         filtergo _ = False
 
