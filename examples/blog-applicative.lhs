@@ -3,7 +3,7 @@
 > {-# LANGUAGE TemplateHaskell #-}
 > {-# LANGUAGE ScopedTypeVariables #-}
 > {-# LANGUAGE KindSignatures #-}
-> {-# LANGUAGE TypeFamilies #-}combintator
+> {-# LANGUAGE TypeFamilies #-}
 > {-# LANGUAGE MultiParamTypeClasses #-}
 > {-# LANGUAGE UndecidableInstances #-}
 > {-# LANGUAGE FlexibleInstances #-}
