@@ -296,7 +296,7 @@ fromList [fromList [fromList [1.0,2.0]
 Of course, we must be careful.  If we specify lengths that cause the size of the result to exceed the allocated `ByteArray`, then we will get undefined results:
 
 ```
-ghci> apWith3Param vvv3 (_elem._elem._len) 2 (_elem._len) 5 _len 1 show vvv3 :: String
+ghci> apWith3Param vvv3 (_elem._elem._len) 2 (_elem._len) 5 _len 2 show vvv3 :: String
 fromList [fromList [fromList [1.0,2.0]
                    ,fromList [3.0,4.0]
                    ,fromList [5.0,6.0]
