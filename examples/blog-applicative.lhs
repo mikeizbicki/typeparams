@@ -266,6 +266,59 @@ There's two more Applicative combinators needed for parsing: *> and <* .  They u
 > infixl 4 *>
 > (u *> v) lens = pure (const id) <*> u <*> v @@ lens
 
+> (*>) :: 
+>   ( Applicative lens ( SetParam lens ( a -> b -> b ) tb )
+>   , Applicative lens ( SetParam lens (      b -> b ) tb )
+>   , Applicative lens tb
+
+-- >   , b ~ GetParam lens tb
+-- >   , tb ~ SetParam lens b tb
+-- >   --, LensLaw1 lens tb
+
+>   , LensLaw1 lens tb
+>   , LensLaw4 lens (a->b->b) (b->b) tb
+>   , LensLaw4 lens a (b->b) tb
+>   , LensLaw3 lens (a -> b -> b) (b -> b) tb
+>   , LensLaw2 lens (b->b) tb
+>   , LensLaw2 lens b tb
+>   , LensLaw3 lens a (b->b) tb
+>   ) => SetParam lens a tb 
+>     -> tb
+>     -> TypeLens Base lens 
+>     -> tb
+
+-- > type instance SetParam Base t' t = t'
+-- > type instance GetParam Base t = t
+
+> type LensLaw1 lens t = t ~ SetParam lens (GetParam lens t) t 
+> type LensLaw2 lens a t = a ~ GetParam lens (SetParam lens a t)
+> type LensLaw3 lens a b t = a ~ GetParam lens (SetParam lens a (SetParam lens b t))
+
+> type LensLaw4 lens a b t = SetParam lens a (SetParam lens b t) ~ SetParam lens a t
+
+-- > (*>) :: 
+-- >   ( Applicative lens
+-- >       ( SetParam
+-- >          lens
+-- >          (a1 -> GetParam lens (SetParam lens (a -> GetParam lens tb1) tb1))
+-- >          (SetParam lens (a -> GetParam lens tb1) tb1)
+-- >       )
+-- >   , Applicative lens (SetParam lens (a -> GetParam lens tb1) tb1), Applicative lens tb1
+-- >   , GetParam lens (SetParam lens a tb1) ~ a
+-- >   , (b1 -> a2 -> a2) ~ GetParam
+-- >       lens
+-- >       (SetParam
+-- >          lens
+-- >          (a1 -> GetParam lens (SetParam lens (a -> GetParam lens tb1) tb1))
+-- >          (SetParam lens (a -> GetParam lens tb1) tb1))
+-- >   , a1 ~ GetParam lens (SetParam lens a1 (SetParam lens (a -> GetParam lens tb1) tb1))
+-- >   , tb0 ~ SetParam lens a tb1
+-- >   , ta ~ SetParam lens a1 (SetParam lens (a -> GetParam lens tb1) tb1)
+-- >   ) => ta 
+-- >     -> tb0
+-- >     -> TypeLens Base lens 
+-- >     -> tb1
+
 Now we need to create all of the "minus" operators.  Remember that the minus sign points to the variable that will have the lens automatically applied for us:
 
 > infixl 4  <*-
@@ -628,151 +681,4 @@ Circuit
 
 Next time we'll discover why lensified monads are like burritos infused with 
 fiber optic cables.
-
--------------------
--- monad
-
-Tying the type knot; aka theorems for (cheap | the low low price of type families)
-
-Why not just put (>>=) in the type class?  
-Because these are lenses, gorammit, and lenses don't hold with tradition.
-(We're the Protestants of Haskell, and Edward Kmett is our Martin Luther!)
-We'll need to modify the type of (>>=) to make things jive with the do notation.
-
-
-> {-
-> class Applicative lens tfb => Monad lens tfb where
->   join ::
->       ( tffb ~ CoJoin lens tfb
->       ) => TypeLens Base lens
->         -> tffb -> tfb
->
->   bind ::
->       ( SetParam lens fa tfb ~ CoJoin lens tfa
->       , b ~ GetParam lens tfb
->       , Monad lens tfa -- FIXME: this constraint should be implied by the two previous?
->       ) => TypeLens Base lens
->         -> tfb -> (b -> fa) -> tfa
->   bind lens m f = join lens $ fmap lens f m
->
-> instance Monad (Param_a Base) (Maybe a) where
->   join lens Nothing = Nothing 
->   join lens (Just Nothing) = Nothing
->   join lens (Just (Just a)) = Just a
-
-> infixl 1 >>=
-> (>>=) :: ( TypeLens Base (Param_a Base) ->  Maybe a )
->       -> (a -> TypeLens Base (Param_a Base) ->  Maybe b) 
->       -> TypeLens Base (Param_a Base) 
->       -> Maybe b
-> (>>=) t f lens = bind (_a._base) (t lens) ( \a -> f a lens )
-
-
-> fail = error 
-
-> funky = do
->   a <- lensify $ Just 10
->   b <- const $ Just 2
->   c <- bigger a b
->   d <- smaller a c
->   return a
-
-> lensify :: a -> TypeLens Base lens -> a
-> lensify = const
-
-> return :: Monad lens t
->   => GetParam lens t 
->   -> TypeLens Base lens
->   -> t
-> return = pure 
-
-> bigger :: Int -> Int -> TypeLens Base (Param_a Base) -> Maybe Int
-> bigger k i lens = if i > k then Just i else Nothing
->
-> smaller :: Int -> Int -> TypeLens Base (Param_a Base) -> Maybe Int
-> smaller k i lens = if i < k then Just i else Nothing
-
-> ifThenElse True t _ = t
-> ifThenElse False _ f = f
-
-> instance 
->   ( Monad p a
->   , Maybe (CoJoin p a) ~ CoJoin (Param_a p) (Maybe a)
->   ) => Monad (Param_a p) (Maybe a) 
->       where
->
->       join lens Nothing = Nothing
->       join lens (Just a) = Just $ join (zoom lens) a
-
-> type family Join (lens :: * -> Constraint) t
-> type instance Join lens t = SetParam' lens (GetParam (Objective lens) (GetParam lens t)) t
-
-> type family CoJoin (lens :: * -> Constraint) t
-> type instance CoJoin lens t 
->   = SetParam' 
->       lens 
->       ( SetParam' 
->           ( Objective lens ) 
->           ( GetParam lens t ) 
->           ( GetParam (RemoveObjective lens) t )
->       ) 
->       t
-
-> type family Objective (lens :: * -> Constraint) :: * -> Constraint
-> type instance Objective (Param_a p) = Objective_Param_a (Param_a p)
-> type instance Objective (Param_b p) = Objective_Param_b (Param_b p)
-> type instance Objective Base = Base
-
-> type family Objective_Param_a (lens :: * -> Constraint) :: * -> Constraint where
->   Objective_Param_a (Param_a Base) = Param_a Base
->   Objective_Param_a (Param_a p) = Objective p
-
-> type family Objective_Param_b (lens :: * -> Constraint) :: * -> Constraint where
->   Objective_Param_b (Param_b Base) = Param_b Base
->   Objective_Param_b (Param_b p) = Objective p
-
-> type family RemoveObjective (lens :: * -> Constraint) :: * -> Constraint
-> type instance RemoveObjective (Param_a p) = RemoveObjective_Param_a (Param_a p)
-> type instance RemoveObjective (Param_b p) = RemoveObjective_Param_b (Param_b p)
-
-> type family RemoveObjective_Param_a (lens :: * -> Constraint) :: * -> Constraint where
->   RemoveObjective_Param_a (Param_a Base) = Base
->   RemoveObjective_Param_a (Param_a p) = Param_a (RemoveObjective p)
-
-> type family RemoveObjective_Param_b (lens :: * -> Constraint) :: * -> Constraint where
->   RemoveObjective_Param_b (Param_b Base) = Base
->   RemoveObjective_Param_b (Param_b p) = Param_b (RemoveObjective p)
-
-> mkParams ''[]
-> mkParams ''Maybe
->
-
-> instance Functor p a => Functor (Param_a p) [a] where
->   fmap' lens f [] = []
->   fmap' lens f (x:xs) = fmap' (zoom lens) f x:fmap' lens f xs
-
-> instance Applicative p a => Applicative (Param_a p) [a] where
->   pure f lens = [pure f $ zoom lens]
-
-> instance Monad (Param_a Base) [a] where
->   join lens xs = concat xs
-> -}
-
-It's about time we started writing laws to go along with our 
-
-> type LensLaw1 lens t = SetParam' lens (GetParam lens t) t ~ t
-> lensLaw1 :: LensLaw1 lens t => TypeLens Base lens -> t -> t
-> lensLaw1 _ = id
-
-> type LensLaw2 lens a t = a ~ GetParam lens (SetParam' lens a t)
-> lensLaw2 :: LensLaw2 lens a t => TypeLens Base lens -> proxy a -> t -> t
-> lensLaw2 _ _ = id
-
-> type LensLaw3 lens a b t = a ~ GetParam lens (SetParam' lens a (SetParam' lens b t))
-> lensLaw3 :: LensLaw3 lens a b t => TypeLens Base lens -> proxy a -> proxy b -> t -> t
-> lensLaw3 _ _ _ = id
-
-quickcheck these laws with template haskell => type level quick check?
-
-The name of each law corresponds to the number of parameters the function takes!
 
