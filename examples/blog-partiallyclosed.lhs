@@ -14,7 +14,7 @@ But for our motivating example, we'll also use these extensions and some basic i
 > import Data.Proxy
 > import GHC.Exts
 
-Conisder the classes:
+Consider the classes:
 
 > class Param_a (p :: * -> Constraint) t
 > class Param_b (p :: * -> Constraint) t
