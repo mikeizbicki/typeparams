@@ -9,6 +9,8 @@ import Prelude hiding ((.), id, Functor(..), Applicative(..))
 import Data.Maybe
 import Data.Params
 
+import GHC.Exts
+
 -------------------------------------------------------------------------------
 
 class Functor lens tb where
@@ -28,6 +30,17 @@ fmap lens = fmap' (lens._base)
 -- Either
 
 mkParams ''Either
+
+-- type instance Objective (Param_a p) = Objective_Param_a (Param_a p)
+-- type family Objective_Param_a (lens :: * -> Constraint) :: * -> Constraint where
+--   Objective_Param_a (Param_a Base) = Param_a Base
+--   Objective_Param_a (Param_a p) = Objective p
+-- 
+-- type instance Objective (Param_b p) = Objective_Param_b (Param_b p)
+-- type family Objective_Param_b (lens :: * -> Constraint) :: * -> Constraint where
+--   Objective_Param_b (Param_b Base) = Param_b Base
+--   Objective_Param_b (Param_b p) = Objective p
+
 
 instance Functor p b => Functor (Param_b p) (Either a b) where
   fmap' lens f (Left a) = Left a

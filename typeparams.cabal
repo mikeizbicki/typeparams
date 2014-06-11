@@ -1,5 +1,5 @@
 Name:                typeparams
-Version:             0.0.3.0
+Version:             0.0.4
 Synopsis:            Lens-like interface for type level parameters; allows unboxed unboxed vectors and supercompilation
 Description:         
     This library provides a lens-like interface for working with type parameters. In the code:
@@ -44,9 +44,10 @@ Library
 
     Exposed-modules:
         Data.Params
+        Data.Params.Applicative
         Data.Params.Frac
         Data.Params.PseudoPrim
-        -- Data.Params.Instances
+        Data.Params.Functor
         Data.Params.Vector
         -- Data.Params.Vector.Storable
         -- Data.Params.Vector.StorableRaw

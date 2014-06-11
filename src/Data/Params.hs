@@ -37,6 +37,8 @@ module Data.Params
     , GetParam
     , SetParam
     , SetParam'
+    , Objective
+    , RemoveObjective
     , Base
     , _base
     , zoom
@@ -335,6 +337,7 @@ apUsing5 d1 d2 d3 d4 d5 m f = reify d5 $ \(_ :: Proxy s5) ->
         replaceProof5 = trans proof reifiedIns
             where proof = unsafeCoerceConstraint :: p5 (ConstraintLift p5 a5 s5) :- p5 a5
     in (f m) \\ replaceProof \\ replaceProof2 \\ replaceProof3 \\ replaceProof4 \\ replaceProof5
+
 -------------------
 -- for external use
 
@@ -369,8 +372,11 @@ type family SetParam' (p :: * -> Constraint) (a :: *) (t :: *) :: *
 
 type family Zoom (p :: k1) :: k2
 type family EyePiece (p :: k1) :: k2
--- type family Zoom (p :: * -> Constraint) :: * -> Constraint
--- type family EyePiece (p :: * -> Constraint) :: (* -> Constraint) -> * -> Constraint
+
+type family Objective (lens :: * -> Constraint) :: * -> Constraint
+type instance Objective Base = Base
+
+type family RemoveObjective (lens :: * -> Constraint) :: * -> Constraint
 
 zoom :: TypeLens a p -> TypeLens a (Zoom p)
 zoom lens = TypeLens
@@ -759,6 +765,16 @@ mkTypeFamilies_Common paramstr dataName = do
 -- > type instance Zoom (Param_vi a) = a
 -- > type instance EyePiece (Param_vi a) = Param_vi
 --
+-- > type instance Objective (Param_vi p) = Objective_Param_vi (Param_vi p)
+-- > type family Objective_Param_vi (lens :: * -> Constraint) :: * -> Constraint where
+-- >   Objective_Param_vi (Param_vi Base) = Param_vi Base
+-- >   Objective_Param_vi (Param_vi p) = Objective p
+--
+-- > type instance RemoveObjective (Param_vi p) = RemoveObjective_Param_vi (Param_vi p)
+-- > type family RemoveObjective_Param_vi (lens :: * -> Constraint) :: * -> Constraint where
+-- >   RemoveObjective_Param_vi (Param_vi Base) = Base
+-- >   RemoveObjective_Param_vi (Param_vi p) = Param_vi (RemoveObjective p)
+-- 
 -- This function requires that the @Param_@ classes have already been defined.
 --
 mkTypeFamilies_Star :: String -> Name -> Q [Dec]
@@ -775,16 +791,72 @@ mkTypeFamilies_Star paramstr dataName = do
                 ( TySynEqn
                     [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
                     ( VarT $ mkName "p" )
-
                 )
             , TySynInstD
                 ( mkName "EyePiece" )
                 ( TySynEqn
                     [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
                     ( ConT $ mkName $ "Param_"++paramstr )
-
                 )
             ]
+
+    isdef <- lookupTypeName $ "Objective_Param_"++paramstr
+    let objective = case isdef of
+            Just _ -> []
+            Nothing ->
+                [ ClosedTypeFamilyD
+                    ( mkName $ "Objective_Param_"++paramstr )
+                    [ KindedTV ( mkName "lens" ) ( AppT (AppT ArrowT StarT) ConstraintT) ]
+                    ( Just ( AppT (AppT ArrowT StarT) ConstraintT) )
+                    [ TySynEqn
+                        [ AppT (ConT $ mkName $ "Param_"++paramstr) (ConT $ mkName "Base") ]
+                        ( AppT (ConT $ mkName $ "Param_"++paramstr) (ConT $ mkName "Base") )
+                    , TySynEqn
+                        [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
+                        ( AppT (ConT $ mkName "Objective" ) (VarT $ mkName "p") )
+                    ]
+                , TySynInstD
+                    ( mkName "Objective" )
+                    ( TySynEqn
+                        [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
+                        ( AppT 
+                            ( ConT $ mkName $ "Objective_Param_"++paramstr ) 
+                            ( AppT
+                                ( ConT $ mkName $ "Param_"++paramstr )
+                                ( VarT $ mkName "p") 
+                            )
+                        )
+                    )
+                , ClosedTypeFamilyD
+                    ( mkName $ "RemoveObjective_Param_"++paramstr )
+                    [ KindedTV ( mkName "lens" ) ( AppT (AppT ArrowT StarT) ConstraintT) ]
+                    ( Just ( AppT (AppT ArrowT StarT) ConstraintT) )
+                    [ TySynEqn
+                        [ AppT (ConT $ mkName $ "Param_"++paramstr) (ConT $ mkName "Base") ]
+                        ( ConT $ mkName "Base")
+                    , TySynEqn
+                        [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
+                        ( AppT 
+                            ( ConT $ mkName $ "Param_"++paramstr ) 
+                            ( AppT
+                                ( ConT $ mkName $ "RemoveObjective" )
+                                ( VarT $ mkName "p") 
+                            )
+                        )
+                    ]
+                , TySynInstD
+                    ( mkName "RemoveObjective" )
+                    ( TySynEqn
+                        [ AppT (ConT $ mkName $ "Param_"++paramstr) (VarT $ mkName "p") ]
+                        ( AppT 
+                            ( ConT $ mkName $ "RemoveObjective_Param_"++paramstr ) 
+                            ( AppT
+                                ( ConT $ mkName $ "Param_"++paramstr )
+                                ( VarT $ mkName "p") 
+                            )
+                        )
+                    )
+                ]
 
     let getters = 
             [ TySynInstD
@@ -872,7 +944,7 @@ mkTypeFamilies_Star paramstr dataName = do
                 )
             ]
 
-    return $ zooms++getters++setters
+    return $ zooms++getters++setters++objective
 
 -- | Given a data type of the form
 --

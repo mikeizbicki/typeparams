@@ -266,59 +266,6 @@ There's two more Applicative combinators needed for parsing: *> and <* .  They u
 > infixl 4 *>
 > (u *> v) lens = pure (const id) <*> u <*> v @@ lens
 
-> (*>) :: 
->   ( Applicative lens ( SetParam lens ( a -> b -> b ) tb )
->   , Applicative lens ( SetParam lens (      b -> b ) tb )
->   , Applicative lens tb
-
--- >   , b ~ GetParam lens tb
--- >   , tb ~ SetParam lens b tb
--- >   --, LensLaw1 lens tb
-
->   , LensLaw1 lens tb
->   , LensLaw4 lens (a->b->b) (b->b) tb
->   , LensLaw4 lens a (b->b) tb
->   , LensLaw3 lens (a -> b -> b) (b -> b) tb
->   , LensLaw2 lens (b->b) tb
->   , LensLaw2 lens b tb
->   , LensLaw3 lens a (b->b) tb
->   ) => SetParam lens a tb 
->     -> tb
->     -> TypeLens Base lens 
->     -> tb
-
--- > type instance SetParam Base t' t = t'
--- > type instance GetParam Base t = t
-
-> type LensLaw1 lens t = t ~ SetParam lens (GetParam lens t) t 
-> type LensLaw2 lens a t = a ~ GetParam lens (SetParam lens a t)
-> type LensLaw3 lens a b t = a ~ GetParam lens (SetParam lens a (SetParam lens b t))
-
-> type LensLaw4 lens a b t = SetParam lens a (SetParam lens b t) ~ SetParam lens a t
-
--- > (*>) :: 
--- >   ( Applicative lens
--- >       ( SetParam
--- >          lens
--- >          (a1 -> GetParam lens (SetParam lens (a -> GetParam lens tb1) tb1))
--- >          (SetParam lens (a -> GetParam lens tb1) tb1)
--- >       )
--- >   , Applicative lens (SetParam lens (a -> GetParam lens tb1) tb1), Applicative lens tb1
--- >   , GetParam lens (SetParam lens a tb1) ~ a
--- >   , (b1 -> a2 -> a2) ~ GetParam
--- >       lens
--- >       (SetParam
--- >          lens
--- >          (a1 -> GetParam lens (SetParam lens (a -> GetParam lens tb1) tb1))
--- >          (SetParam lens (a -> GetParam lens tb1) tb1))
--- >   , a1 ~ GetParam lens (SetParam lens a1 (SetParam lens (a -> GetParam lens tb1) tb1))
--- >   , tb0 ~ SetParam lens a tb1
--- >   , ta ~ SetParam lens a1 (SetParam lens (a -> GetParam lens tb1) tb1)
--- >   ) => ta 
--- >     -> tb0
--- >     -> TypeLens Base lens 
--- >     -> tb1
-
 Now we need to create all of the "minus" operators.  Remember that the minus sign points to the variable that will have the lens automatically applied for us:
 
 > infixl 4  <*-
