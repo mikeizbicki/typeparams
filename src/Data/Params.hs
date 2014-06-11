@@ -42,6 +42,8 @@ module Data.Params
     , Base
     , _base
     , zoom
+    , objective
+    , removeObjective
     , Zoom 
     , EyePiece
     , ApplyConstraint_GetType
@@ -380,6 +382,12 @@ type family RemoveObjective (lens :: * -> Constraint) :: * -> Constraint
 
 zoom :: TypeLens a p -> TypeLens a (Zoom p)
 zoom lens = TypeLens
+
+objective :: TypeLens q p -> TypeLens q (Objective p)
+objective _ = TypeLens
+
+removeObjective :: TypeLens p q -> TypeLens p (RemoveObjective q)
+removeObjective _ = TypeLens
 
 class Base a 
 
