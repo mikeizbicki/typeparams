@@ -94,8 +94,10 @@ module Data.Params
 
     , module Data.Reflection
     , module Data.Proxy
+--     , Sub 
+--     , Dict 
     , module Data.Constraint
-    , module Data.Constraint.Unsafe
+--     , module Data.Constraint.Unsafe
     )
     where
 
