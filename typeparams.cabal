@@ -1,12 +1,12 @@
 Name:                typeparams
-Version:             0.0.5
+Version:             0.0.6
 Synopsis:            Lens-like interface for type level parameters; allows unboxed unboxed vectors and supercompilation
-Description:         
+Description:
     This library provides a lens-like interface for working with type parameters. In the code:
     .
     > data Example p1 (p2::Config Nat) (p3::Constraint) = Example
     .
-    @p1@, @p2@, and @p3@ are the type parameters.  
+    @p1@, @p2@, and @p3@ are the type parameters.
     .
     Two example uses of this library are for unboxing unboxed vectors and supercompilation-like optimizations.   Please see the <https://github.com/mikeizbicki/typeparams#the-typeparams-library README file on github> for a detailed description and tutorial.  After reading through that, the haddock documentation will make more sense.
 
@@ -21,7 +21,7 @@ homepage:            http://github.com/mikeizbicki/typeparams/
 bug-reports:         http://github.com/mikeizbicki/typeparams/issues
 
 Library
-    Build-Depends:      
+    Build-Depends:
         base                >= 4.7 && < 5,
         deepseq             >= 1.3,
         tagged              >= 0.7,
@@ -33,11 +33,11 @@ Library
 
         -- examples
         vector              >= 0.10
-        
-    hs-source-dirs:     
+
+    hs-source-dirs:
         src
 
-    ghc-options:        
+    ghc-options:
         -fllvm
         -O2
         -funbox-strict-fields
